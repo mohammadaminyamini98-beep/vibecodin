@@ -2,52 +2,69 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>SRL Writing Companion</title>
+<title>SRL Writing Phase Assistant</title>
 
 <style>
 :root{
-  --bg:#0f1220; --card:rgba(255,255,255,.08);
-  --text:#eaeaf0; --muted:#9aa0b4;
-  --accent:#7dd3fc; --success:#4ade80;
+  --bg:#0f1220;
+  --panel:rgba(255,255,255,0.08);
+  --text:#eaeaf0;
+  --muted:#9aa0b4;
+  --accent:#7dd3fc;
 }
 body{
-  margin:0; font-family:system-ui;
+  margin:0;
+  font-family:system-ui;
   background:radial-gradient(circle at top,#1a1f3a,var(--bg));
   color:var(--text);
 }
-.container{max-width:900px;margin:30px auto;padding:20px;}
-.chat{
-  background:var(--card); border-radius:16px;
-  padding:20px; margin-bottom:20px;
+.container{
+  max-width:1100px;
+  margin:30px auto;
+  padding:20px;
+  display:grid;
+  grid-template-columns:2fr 1fr;
+  gap:20px;
 }
-.msg{margin-bottom:14px;}
-.bot{color:var(--accent);}
-.user{color:var(--success);}
+.panel{
+  background:var(--panel);
+  border-radius:16px;
+  padding:20px;
+}
 textarea{
-  width:100%; min-height:160px;
-  background:rgba(0,0,0,.4); color:var(--text);
-  border:none; border-radius:12px;
-  padding:14px; font-size:15px;
+  width:100%;
+  min-height:360px;
+  background:rgba(0,0,0,0.4);
+  color:var(--text);
+  border:none;
+  border-radius:14px;
+  padding:18px;
+  font-size:16px;
+  line-height:1.6;
 }
-button{
-  margin-top:10px; padding:10px 18px;
-  border:none; border-radius:10px;
-  background:var(--accent); color:#000;
-  cursor:pointer;
+h2{margin-top:0;font-weight:500;}
+.metric{margin-bottom:14px;}
+.metric span{
+  display:block;
+  font-size:13px;
+  color:var(--muted);
 }
-.metrics{
-  display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-  gap:12px;
+.metric strong{
+  font-size:20px;
 }
-.metric{
-  background:var(--card); padding:14px;
+#coach{
+  margin-top:18px;
+  padding:14px;
   border-radius:12px;
+  background:rgba(125,211,252,0.15);
+  color:var(--accent);
 }
-.metric span{font-size:13px;color:var(--muted);}
-.metric strong{font-size:20px;}
 .footer{
-  text-align:center; font-size:13px;
-  color:var(--muted); margin-top:30px;
+  grid-column:1/-1;
+  text-align:center;
+  color:var(--muted);
+  font-size:13px;
+  margin-top:20px;
 }
 </style>
 </head>
@@ -55,110 +72,154 @@ button{
 <body>
 <div class="container">
 
-<h1>🧠 SRL Writing Companion</h1>
-
-<div class="chat" id="chat">
-  <div class="msg bot">👋 Hello. Before you start writing, let’s plan.</div>
-  <div class="msg bot">What is your goal for this task?</div>
+<!-- Writing Area -->
+<div class="panel">
+  <h2>Writing Task</h2>
+  <p style="color:var(--muted)">
+    Write your essay naturally. The system observes patterns over time
+    to support your writing process.
+  </p>
+  <textarea id="editor" placeholder="Start writing here..."></textarea>
+  <div id="coach"></div>
 </div>
 
-<textarea id="input" placeholder="Type your response or start writing your assignment..."></textarea>
-<button onclick="submit()">Send</button>
+<!-- Phase Panel -->
+<div class="panel">
+  <h2>Writing Phase Support</h2>
 
-<div class="metrics">
-  <div class="metric"><span>Detected SRL Phase</span><strong id="phase">Planning</strong></div>
-  <div class="metric"><span>Persistence</span><strong id="persist">—</strong></div>
-  <div class="metric"><span>Monitoring Load</span><strong id="monitor">0</strong></div>
-  <div class="metric"><span>Reflection Depth</span><strong id="reflect">—</strong></div>
+  <div class="metric">
+    <span>Likely Current Phase</span>
+    <strong id="phase">Planning</strong>
+  </div>
+
+  <div class="metric">
+    <span>Why this phase?</span>
+    <strong id="reason">—</strong>
+  </div>
+
+  <div class="metric">
+    <span>Suggested Focus</span>
+    <strong id="suggestion">—</strong>
+  </div>
 </div>
 
 <div class="footer">
-Self-Regulated Learning · Conversational Process Analytics · Vanilla JS
+SRL-based writing support · Pattern-based phase inference · Single-file prototype
 </div>
 
 </div>
 
 <script>
-const chat = document.getElementById("chat");
-const input = document.getElementById("input");
+const editor = document.getElementById("editor");
+const coach = document.getElementById("coach");
 
-let phase = "Planning";
-let lastKey = null;
-let pauses = 0;
-let deletions = 0;
-let wordsWritten = 0;
-let reflectionLength = 0;
+let events = [];
+let startTime = null;
+let lastKeyTime = null;
 
+const WINDOW = 60000; // 60 seconds
 const MICRO = 300;
 const INACTIVITY = 120000;
+
 let idleTimer;
 
-function bot(text){
-  const d=document.createElement("div");
-  d.className="msg bot";
-  d.textContent="🤖 "+text;
-  chat.appendChild(d);
-  chat.scrollTop=chat.scrollHeight;
-}
+// --- Event logging ---
+editor.addEventListener("keydown", e => {
+  const now = performance.now();
+  if (!startTime) startTime = now;
 
-function user(text){
-  const d=document.createElement("div");
-  d.className="msg user";
-  d.textContent="🧑 "+text;
-  chat.appendChild(d);
-}
+  let type = "type";
+  if (e.key === "Backspace" || e.key === "Delete") type = "delete";
 
-input.addEventListener("keydown",e=>{
-  const now=performance.now();
-  if(lastKey){
-    const gap=now-lastKey;
-    if(gap>MICRO) pauses+=gap;
-  }
-  if(e.key==="Backspace") deletions++;
-  lastKey=now;
+  events.push({ time: now, type });
+  events = events.filter(ev => now - ev.time <= WINDOW);
+
+  lastKeyTime = now;
+  hideCoach();
   resetIdle();
+  updatePhase();
 });
 
+// --- Inactivity support ---
 function resetIdle(){
   clearTimeout(idleTimer);
-  idleTimer=setTimeout(()=>{
-    bot("Take your time. Try writing one more sentence.");
-  },INACTIVITY);
+  idleTimer = setTimeout(() => {
+    coach.textContent =
+      "You’ve paused for a while. In planning phases, it helps to jot down rough ideas or keywords.";
+    coach.style.display = "block";
+  }, INACTIVITY);
+}
+function hideCoach(){ coach.style.display = "none"; }
+
+// --- Phase inference ---
+function inferPhase(){
+  if (events.length < 5) {
+    return {
+      phase: "Planning",
+      reason: "Very little recent activity",
+      suggestion: "Think about your main idea or outline briefly."
+    };
+  }
+
+  const types = events.map(e => e.type);
+  const deletes = types.filter(t => t === "delete").length;
+  const typesCount = types.length;
+
+  const deleteRatio = deletes / typesCount;
+  const words = editor.value.trim().split(/\s+/).length;
+  const elapsed = startTime ? performance.now() - startTime : 1;
+  const pauseRatio =
+    lastKeyTime ? (performance.now() - lastKeyTime) / elapsed : 0;
+
+  // ---- PLANNING ----
+  if (deleteRatio > 0.35 || words < 40) {
+    return {
+      phase: "Planning",
+      reason: "Short bursts, revisions, or early drafting",
+      suggestion: "List ideas, write fragments, or sketch your structure."
+    };
+  }
+
+  // ---- MONITORING ----
+  if (deleteRatio > 0.2 && words > 60) {
+    return {
+      phase: "Monitoring",
+      reason: "Frequent revisions of existing text",
+      suggestion: "Check clarity and organization, not small details yet."
+    };
+  }
+
+  // ---- PERFORMANCE ----
+  if (deleteRatio < 0.15 && pauseRatio < 0.25) {
+    return {
+      phase: "Performance",
+      reason: "Sustained writing with few interruptions",
+      suggestion: "Focus on expressing ideas without over-editing."
+    };
+  }
+
+  // ---- REFLECTION ----
+  if (words > 200 && pauseRatio > 0.4) {
+    return {
+      phase: "Reflection",
+      reason: "Writing slowed after substantial text",
+      suggestion: "Think about strengths and what you’d revise next."
+    };
+  }
+
+  return {
+    phase: "Planning",
+    reason: "Mixed signals",
+    suggestion: "Clarify your next idea before continuing."
+  };
 }
 
-function submit(){
-  const text=input.value.trim();
-  if(!text) return;
-
-  user(text);
-  input.value="";
-
-  const wordCount=text.split(/\s+/).length;
-  wordsWritten+=wordCount;
-
-  if(phase==="Planning"){
-    bot("Great. Now start writing your assignment.");
-    phase="Performance";
-  }
-  else if(phase==="Performance" && wordsWritten>120){
-    bot("You’ve written a lot. What part was most challenging?");
-    phase="Reflection";
-  }
-  else if(phase==="Reflection"){
-    reflectionLength+=wordCount;
-    bot("Thank you. What would you improve next time?");
-  }
-
-  updateMetrics();
-}
-
-function updateMetrics(){
-  document.getElementById("phase").textContent=phase;
-  document.getElementById("persist").textContent=
-    wordsWritten>150?"High":wordsWritten>60?"Moderate":"Low";
-  document.getElementById("monitor").textContent=deletions;
-  document.getElementById("reflect").textContent=
-    reflectionLength>40?"Deep":reflectionLength>15?"Moderate":"Surface";
+// --- Update UI ---
+function updatePhase(){
+  const result = inferPhase();
+  document.getElementById("phase").textContent = result.phase;
+  document.getElementById("reason").textContent = result.reason;
+  document.getElementById("suggestion").textContent = result.suggestion;
 }
 </script>
 </body>
