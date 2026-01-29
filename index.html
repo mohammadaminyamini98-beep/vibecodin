@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Writing Effort Analyzer</title>
+<title>Writing Effort & Lexical Analyzer</title>
 
 <style>
 :root {
@@ -11,6 +11,7 @@
   --text: #eaeaf0;
   --muted: #9aa0b4;
   --accent: #7dd3fc;
+  --warn: #facc15;
   --danger: #fb7185;
   --success: #4ade80;
 }
@@ -19,7 +20,7 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  font-family: system-ui, sans-serif;
   background: radial-gradient(circle at top, #1a1f3a, var(--bg));
   color: var(--text);
 }
@@ -30,10 +31,7 @@ body {
   padding: 20px;
 }
 
-h1 {
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
+h1 { font-weight: 600; }
 
 .card {
   background: var(--card);
@@ -46,31 +44,29 @@ h1 {
 textarea {
   width: 100%;
   min-height: 220px;
-  resize: vertical;
   background: rgba(0,0,0,0.35);
   color: var(--text);
   border: none;
   border-radius: 10px;
   padding: 16px;
   font-size: 16px;
-  line-height: 1.5;
+  line-height: 1.6;
   outline: none;
 }
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  grid-template-columns: repeat(auto-fit,minmax(200px,1fr));
   gap: 14px;
 }
 
 .metric {
+  background: rgba(255,255,255,0.05);
   padding: 14px;
   border-radius: 10px;
-  background: rgba(255,255,255,0.05);
 }
 
 .metric span {
-  display: block;
   font-size: 13px;
   color: var(--muted);
 }
@@ -79,29 +75,27 @@ textarea {
   font-size: 22px;
 }
 
-#timeline {
-  height: 14px;
-  width: 100%;
-  border-radius: 10px;
-  background: linear-gradient(to right, #334155, #334155);
-  overflow: hidden;
-  margin-top: 10px;
-}
-
-.segment {
-  height: 100%;
-  float: left;
+.highlight {
+  background: rgba(251,113,133,0.25);
+  border-bottom: 2px dashed var(--danger);
 }
 
 .phase {
-  margin-top: 10px;
   font-size: 14px;
 }
 
+#timeline {
+  height: 14px;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.segment { height: 100%; float: left; }
+
 .footer {
   text-align: center;
-  color: var(--muted);
   font-size: 13px;
+  color: var(--muted);
   margin-top: 40px;
 }
 </style>
@@ -110,37 +104,23 @@ textarea {
 <body>
 <div class="container">
 
-<h1>🧠 Writing Effort Analyzer</h1>
+<h1>🧠 Writing Effort & Lexical Analyzer</h1>
 
 <div class="card">
   <p>
-    Write an English essay below. This tool analyzes <em>writing effort as a process</em>
-    using keystrokes, pauses, revisions, and monitoring behavior.
+    This research prototype analyzes <strong>writing effort, lexical accuracy, and self-regulatory behavior</strong>
+    during English essay writing. It is descriptive, not evaluative.
   </p>
-  <textarea id="editor" placeholder="Start writing your essay here..."></textarea>
+  <textarea id="editor" placeholder="Write your English essay here..."></textarea>
 </div>
 
 <div class="card metrics">
-  <div class="metric">
-    <span>Words</span>
-    <strong id="words">0</strong>
-  </div>
-  <div class="metric">
-    <span>Pause Load</span>
-    <strong id="pauseLoad">0%</strong>
-  </div>
-  <div class="metric">
-    <span>Revision Load</span>
-    <strong id="revisionLoad">0</strong>
-  </div>
-  <div class="metric">
-    <span>Monitoring Load</span>
-    <strong id="monitoringLoad">0</strong>
-  </div>
-  <div class="metric">
-    <span>Effort Density</span>
-    <strong id="effort">Low</strong>
-  </div>
+  <div class="metric"><span>Total Words</span><strong id="words">0</strong></div>
+  <div class="metric"><span>Recognized Words</span><strong id="correct">0</strong></div>
+  <div class="metric"><span>Unrecognized Words</span><strong id="incorrect">0</strong></div>
+  <div class="metric"><span>Spelling Accuracy</span><strong id="accuracy">0%</strong></div>
+  <div class="metric"><span>Revision Load</span><strong id="revisions">0</strong></div>
+  <div class="metric"><span>Pause Load</span><strong id="pauses">0%</strong></div>
 </div>
 
 <div class="card">
@@ -149,62 +129,50 @@ textarea {
 </div>
 
 <div class="footer">
-  Research prototype · Process-based writing analytics · Vanilla JS
+  Educational research prototype · Process-based writing analytics · Vanilla JS
 </div>
 
 </div>
 
 <script>
+// --- Minimal dictionary (extendable) ---
+const dictionary = new Set([
+  "the","and","to","of","is","in","that","it","for","as","with","was","are","on",
+  "this","by","be","or","from","at","an","which","but","not","have","has","had",
+  "education","learning","student","teacher","technology","research","writing",
+  "essay","language","english","process","effort","analysis","data","cognitive"
+]);
+
 const editor = document.getElementById("editor");
 
 let startTime = null;
 let lastKeyTime = null;
 let totalPauseTime = 0;
 let deletions = 0;
-let scrollReversals = 0;
-let lastScrollTop = 0;
-
 let segments = [];
 
-const MICRO_PAUSE = 300;
-const MACRO_PAUSE = 2000;
+const MICRO = 300;
+const MACRO = 2000;
 
 editor.addEventListener("keydown", e => {
   const now = performance.now();
-
   if (!startTime) startTime = now;
 
   if (lastKeyTime) {
     const gap = now - lastKeyTime;
-    if (gap > MICRO_PAUSE) totalPauseTime += gap;
+    if (gap > MICRO) totalPauseTime += gap;
   }
 
-  if (e.key === "Backspace" || e.key === "Delete") {
-    deletions++;
-  }
-
+  if (e.key === "Backspace" || e.key === "Delete") deletions++;
   lastKeyTime = now;
-  update();
-});
-
-editor.addEventListener("scroll", () => {
-  const current = editor.scrollTop;
-  if ((current - lastScrollTop) * lastScrollTop < 0) {
-    scrollReversals++;
-  }
-  lastScrollTop = current;
   update();
 });
 
 function inferPhase() {
   if (!lastKeyTime) return "Idle";
-
-  const now = performance.now();
-  const gap = now - lastKeyTime;
-
-  if (gap > MACRO_PAUSE) return "Planning";
-  if (deletions > 5) return "Revising";
-  if (scrollReversals > 3) return "Monitoring";
+  const gap = performance.now() - lastKeyTime;
+  if (gap > MACRO) return "Planning";
+  if (deletions > 10) return "Revising";
   return "Drafting";
 }
 
@@ -213,45 +181,49 @@ function updateTimeline(phase) {
     Planning: "#fb7185",
     Drafting: "#4ade80",
     Revising: "#facc15",
-    Monitoring: "#7dd3fc"
+    Idle: "#64748b"
   };
-
-  segments.push({ phase, color: colors[phase] });
-
+  segments.push(colors[phase]);
   if (segments.length > 50) segments.shift();
 
   const timeline = document.getElementById("timeline");
   timeline.innerHTML = "";
-
-  segments.forEach(seg => {
-    const div = document.createElement("div");
-    div.className = "segment";
-    div.style.width = (100 / segments.length) + "%";
-    div.style.background = seg.color;
-    timeline.appendChild(div);
+  segments.forEach(() => {
+    const d = document.createElement("div");
+    d.className = "segment";
+    d.style.width = (100 / segments.length) + "%";
+    d.style.background = colors[phase];
+    timeline.appendChild(d);
   });
 }
 
 function update() {
-  const text = editor.value.trim();
-  const words = text ? text.split(/\s+/).length : 0;
-  const now = performance.now();
-  const elapsed = startTime ? now - startTime : 1;
+  const text = editor.value;
+  const words = text.match(/\b[a-zA-Z]+\b/g) || [];
 
+  let correct = 0;
+  let incorrect = 0;
+
+  words.forEach(w => {
+    if (dictionary.has(w.toLowerCase())) correct++;
+    else incorrect++;
+  });
+
+  const accuracy = words.length
+    ? ((correct / words.length) * 100).toFixed(1)
+    : 0;
+
+  const elapsed = startTime ? performance.now() - startTime : 1;
   const pauseLoad = Math.min((totalPauseTime / elapsed) * 100, 100).toFixed(1);
   const phase = inferPhase();
 
-  document.getElementById("words").textContent = words;
-  document.getElementById("pauseLoad").textContent = pauseLoad + "%";
-  document.getElementById("revisionLoad").textContent = deletions;
-  document.getElementById("monitoringLoad").textContent = scrollReversals;
+  document.getElementById("words").textContent = words.length;
+  document.getElementById("correct").textContent = correct;
+  document.getElementById("incorrect").textContent = incorrect;
+  document.getElementById("accuracy").textContent = accuracy + "%";
+  document.getElementById("revisions").textContent = deletions;
+  document.getElementById("pauses").textContent = pauseLoad + "%";
   document.getElementById("phase").textContent = phase;
-
-  let effort = "Low";
-  if (pauseLoad > 30 || deletions > 10) effort = "Moderate";
-  if (pauseLoad > 50 || deletions > 20) effort = "High";
-
-  document.getElementById("effort").textContent = effort;
 
   updateTimeline(phase);
 }
