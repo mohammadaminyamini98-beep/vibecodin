@@ -1,102 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Writing Effort & Lexical Analyzer</title>
+<meta charset="UTF-8">
+<title>SRL Writing Companion</title>
 
 <style>
-:root {
-  --bg: #0f1220;
-  --card: rgba(255,255,255,0.08);
-  --text: #eaeaf0;
-  --muted: #9aa0b4;
-  --accent: #7dd3fc;
-  --warn: #facc15;
-  --danger: #fb7185;
-  --success: #4ade80;
+:root{
+  --bg:#0f1220; --card:rgba(255,255,255,.08);
+  --text:#eaeaf0; --muted:#9aa0b4;
+  --accent:#7dd3fc; --success:#4ade80;
 }
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
-  background: radial-gradient(circle at top, #1a1f3a, var(--bg));
-  color: var(--text);
+body{
+  margin:0; font-family:system-ui;
+  background:radial-gradient(circle at top,#1a1f3a,var(--bg));
+  color:var(--text);
 }
-
-.container {
-  max-width: 1100px;
-  margin: 40px auto;
-  padding: 20px;
+.container{max-width:900px;margin:30px auto;padding:20px;}
+.chat{
+  background:var(--card); border-radius:16px;
+  padding:20px; margin-bottom:20px;
 }
-
-h1 { font-weight: 600; }
-
-.card {
-  background: var(--card);
-  backdrop-filter: blur(12px);
-  border-radius: 14px;
-  padding: 20px;
-  margin-bottom: 20px;
+.msg{margin-bottom:14px;}
+.bot{color:var(--accent);}
+.user{color:var(--success);}
+textarea{
+  width:100%; min-height:160px;
+  background:rgba(0,0,0,.4); color:var(--text);
+  border:none; border-radius:12px;
+  padding:14px; font-size:15px;
 }
-
-textarea {
-  width: 100%;
-  min-height: 220px;
-  background: rgba(0,0,0,0.35);
-  color: var(--text);
-  border: none;
-  border-radius: 10px;
-  padding: 16px;
-  font-size: 16px;
-  line-height: 1.6;
-  outline: none;
+button{
+  margin-top:10px; padding:10px 18px;
+  border:none; border-radius:10px;
+  background:var(--accent); color:#000;
+  cursor:pointer;
 }
-
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit,minmax(200px,1fr));
-  gap: 14px;
+.metrics{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:12px;
 }
-
-.metric {
-  background: rgba(255,255,255,0.05);
-  padding: 14px;
-  border-radius: 10px;
+.metric{
+  background:var(--card); padding:14px;
+  border-radius:12px;
 }
-
-.metric span {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.metric strong {
-  font-size: 22px;
-}
-
-.highlight {
-  background: rgba(251,113,133,0.25);
-  border-bottom: 2px dashed var(--danger);
-}
-
-.phase {
-  font-size: 14px;
-}
-
-#timeline {
-  height: 14px;
-  border-radius: 10px;
-  overflow: hidden;
-  margin-top: 10px;
-}
-.segment { height: 100%; float: left; }
-
-.footer {
-  text-align: center;
-  font-size: 13px;
-  color: var(--muted);
-  margin-top: 40px;
+.metric span{font-size:13px;color:var(--muted);}
+.metric strong{font-size:20px;}
+.footer{
+  text-align:center; font-size:13px;
+  color:var(--muted); margin-top:30px;
 }
 </style>
 </head>
@@ -104,128 +55,110 @@ textarea {
 <body>
 <div class="container">
 
-<h1>🧠 Writing Effort & Lexical Analyzer</h1>
+<h1>🧠 SRL Writing Companion</h1>
 
-<div class="card">
-  <p>
-    This research prototype analyzes <strong>writing effort, lexical accuracy, and self-regulatory behavior</strong>
-    during English essay writing. It is descriptive, not evaluative.
-  </p>
-  <textarea id="editor" placeholder="Write your English essay here..."></textarea>
+<div class="chat" id="chat">
+  <div class="msg bot">👋 Hello. Before you start writing, let’s plan.</div>
+  <div class="msg bot">What is your goal for this task?</div>
 </div>
 
-<div class="card metrics">
-  <div class="metric"><span>Total Words</span><strong id="words">0</strong></div>
-  <div class="metric"><span>Recognized Words</span><strong id="correct">0</strong></div>
-  <div class="metric"><span>Unrecognized Words</span><strong id="incorrect">0</strong></div>
-  <div class="metric"><span>Spelling Accuracy</span><strong id="accuracy">0%</strong></div>
-  <div class="metric"><span>Revision Load</span><strong id="revisions">0</strong></div>
-  <div class="metric"><span>Pause Load</span><strong id="pauses">0%</strong></div>
-</div>
+<textarea id="input" placeholder="Type your response or start writing your assignment..."></textarea>
+<button onclick="submit()">Send</button>
 
-<div class="card">
-  <span class="phase">Current Writing Phase: <strong id="phase">Idle</strong></span>
-  <div id="timeline"></div>
+<div class="metrics">
+  <div class="metric"><span>Detected SRL Phase</span><strong id="phase">Planning</strong></div>
+  <div class="metric"><span>Persistence</span><strong id="persist">—</strong></div>
+  <div class="metric"><span>Monitoring Load</span><strong id="monitor">0</strong></div>
+  <div class="metric"><span>Reflection Depth</span><strong id="reflect">—</strong></div>
 </div>
 
 <div class="footer">
-  Educational research prototype · Process-based writing analytics · Vanilla JS
+Self-Regulated Learning · Conversational Process Analytics · Vanilla JS
 </div>
 
 </div>
 
 <script>
-// --- Minimal dictionary (extendable) ---
-const dictionary = new Set([
-  "the","and","to","of","is","in","that","it","for","as","with","was","are","on",
-  "this","by","be","or","from","at","an","which","but","not","have","has","had",
-  "education","learning","student","teacher","technology","research","writing",
-  "essay","language","english","process","effort","analysis","data","cognitive"
-]);
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
 
-const editor = document.getElementById("editor");
-
-let startTime = null;
-let lastKeyTime = null;
-let totalPauseTime = 0;
+let phase = "Planning";
+let lastKey = null;
+let pauses = 0;
 let deletions = 0;
-let segments = [];
+let wordsWritten = 0;
+let reflectionLength = 0;
 
 const MICRO = 300;
-const MACRO = 2000;
+const INACTIVITY = 120000;
+let idleTimer;
 
-editor.addEventListener("keydown", e => {
-  const now = performance.now();
-  if (!startTime) startTime = now;
+function bot(text){
+  const d=document.createElement("div");
+  d.className="msg bot";
+  d.textContent="🤖 "+text;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
+}
 
-  if (lastKeyTime) {
-    const gap = now - lastKeyTime;
-    if (gap > MICRO) totalPauseTime += gap;
+function user(text){
+  const d=document.createElement("div");
+  d.className="msg user";
+  d.textContent="🧑 "+text;
+  chat.appendChild(d);
+}
+
+input.addEventListener("keydown",e=>{
+  const now=performance.now();
+  if(lastKey){
+    const gap=now-lastKey;
+    if(gap>MICRO) pauses+=gap;
   }
-
-  if (e.key === "Backspace" || e.key === "Delete") deletions++;
-  lastKeyTime = now;
-  update();
+  if(e.key==="Backspace") deletions++;
+  lastKey=now;
+  resetIdle();
 });
 
-function inferPhase() {
-  if (!lastKeyTime) return "Idle";
-  const gap = performance.now() - lastKeyTime;
-  if (gap > MACRO) return "Planning";
-  if (deletions > 10) return "Revising";
-  return "Drafting";
+function resetIdle(){
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>{
+    bot("Take your time. Try writing one more sentence.");
+  },INACTIVITY);
 }
 
-function updateTimeline(phase) {
-  const colors = {
-    Planning: "#fb7185",
-    Drafting: "#4ade80",
-    Revising: "#facc15",
-    Idle: "#64748b"
-  };
-  segments.push(colors[phase]);
-  if (segments.length > 50) segments.shift();
+function submit(){
+  const text=input.value.trim();
+  if(!text) return;
 
-  const timeline = document.getElementById("timeline");
-  timeline.innerHTML = "";
-  segments.forEach(() => {
-    const d = document.createElement("div");
-    d.className = "segment";
-    d.style.width = (100 / segments.length) + "%";
-    d.style.background = colors[phase];
-    timeline.appendChild(d);
-  });
+  user(text);
+  input.value="";
+
+  const wordCount=text.split(/\s+/).length;
+  wordsWritten+=wordCount;
+
+  if(phase==="Planning"){
+    bot("Great. Now start writing your assignment.");
+    phase="Performance";
+  }
+  else if(phase==="Performance" && wordsWritten>120){
+    bot("You’ve written a lot. What part was most challenging?");
+    phase="Reflection";
+  }
+  else if(phase==="Reflection"){
+    reflectionLength+=wordCount;
+    bot("Thank you. What would you improve next time?");
+  }
+
+  updateMetrics();
 }
 
-function update() {
-  const text = editor.value;
-  const words = text.match(/\b[a-zA-Z]+\b/g) || [];
-
-  let correct = 0;
-  let incorrect = 0;
-
-  words.forEach(w => {
-    if (dictionary.has(w.toLowerCase())) correct++;
-    else incorrect++;
-  });
-
-  const accuracy = words.length
-    ? ((correct / words.length) * 100).toFixed(1)
-    : 0;
-
-  const elapsed = startTime ? performance.now() - startTime : 1;
-  const pauseLoad = Math.min((totalPauseTime / elapsed) * 100, 100).toFixed(1);
-  const phase = inferPhase();
-
-  document.getElementById("words").textContent = words.length;
-  document.getElementById("correct").textContent = correct;
-  document.getElementById("incorrect").textContent = incorrect;
-  document.getElementById("accuracy").textContent = accuracy + "%";
-  document.getElementById("revisions").textContent = deletions;
-  document.getElementById("pauses").textContent = pauseLoad + "%";
-  document.getElementById("phase").textContent = phase;
-
-  updateTimeline(phase);
+function updateMetrics(){
+  document.getElementById("phase").textContent=phase;
+  document.getElementById("persist").textContent=
+    wordsWritten>150?"High":wordsWritten>60?"Moderate":"Low";
+  document.getElementById("monitor").textContent=deletions;
+  document.getElementById("reflect").textContent=
+    reflectionLength>40?"Deep":reflectionLength>15?"Moderate":"Surface";
 }
 </script>
 </body>
