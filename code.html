@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Writing Effort Analyzer</title>
+
+<style>
+:root {
+  --bg: #0f1220;
+  --card: rgba(255,255,255,0.08);
+  --text: #eaeaf0;
+  --muted: #9aa0b4;
+  --accent: #7dd3fc;
+  --danger: #fb7185;
+  --success: #4ade80;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  background: radial-gradient(circle at top, #1a1f3a, var(--bg));
+  color: var(--text);
+}
+
+.container {
+  max-width: 1100px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+h1 {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.card {
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  background: rgba(0,0,0,0.35);
+  color: var(--text);
+  border: none;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 16px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+  gap: 14px;
+}
+
+.metric {
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+}
+
+.metric span {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.metric strong {
+  font-size: 22px;
+}
+
+#timeline {
+  height: 14px;
+  width: 100%;
+  border-radius: 10px;
+  background: linear-gradient(to right, #334155, #334155);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.segment {
+  height: 100%;
+  float: left;
+}
+
+.phase {
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 40px;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>🧠 Writing Effort Analyzer</h1>
+
+<div class="card">
+  <p>
+    Write an English essay below. This tool analyzes <em>writing effort as a process</em>
+    using keystrokes, pauses, revisions, and monitoring behavior.
+  </p>
+  <textarea id="editor" placeholder="Start writing your essay here..."></textarea>
+</div>
+
+<div class="card metrics">
+  <div class="metric">
+    <span>Words</span>
+    <strong id="words">0</strong>
+  </div>
+  <div class="metric">
+    <span>Pause Load</span>
+    <strong id="pauseLoad">0%</strong>
+  </div>
+  <div class="metric">
+    <span>Revision Load</span>
+    <strong id="revisionLoad">0</strong>
+  </div>
+  <div class="metric">
+    <span>Monitoring Load</span>
+    <strong id="monitoringLoad">0</strong>
+  </div>
+  <div class="metric">
+    <span>Effort Density</span>
+    <strong id="effort">Low</strong>
+  </div>
+</div>
+
+<div class="card">
+  <span class="phase">Current Writing Phase: <strong id="phase">Idle</strong></span>
+  <div id="timeline"></div>
+</div>
+
+<div class="footer">
+  Research prototype · Process-based writing analytics · Vanilla JS
+</div>
+
+</div>
+
+<script>
+const editor = document.getElementById("editor");
+
+let startTime = null;
+let lastKeyTime = null;
+let totalPauseTime = 0;
+let deletions = 0;
+let scrollReversals = 0;
+let lastScrollTop = 0;
+
+let segments = [];
+
+const MICRO_PAUSE = 300;
+const MACRO_PAUSE = 2000;
+
+editor.addEventListener("keydown", e => {
+  const now = performance.now();
+
+  if (!startTime) startTime = now;
+
+  if (lastKeyTime) {
+    const gap = now - lastKeyTime;
+    if (gap > MICRO_PAUSE) totalPauseTime += gap;
+  }
+
+  if (e.key === "Backspace" || e.key === "Delete") {
+    deletions++;
+  }
+
+  lastKeyTime = now;
+  update();
+});
+
+editor.addEventListener("scroll", () => {
+  const current = editor.scrollTop;
+  if ((current - lastScrollTop) * lastScrollTop < 0) {
+    scrollReversals++;
+  }
+  lastScrollTop = current;
+  update();
+});
+
+function inferPhase() {
+  if (!lastKeyTime) return "Idle";
+
+  const now = performance.now();
+  const gap = now - lastKeyTime;
+
+  if (gap > MACRO_PAUSE) return "Planning";
+  if (deletions > 5) return "Revising";
+  if (scrollReversals > 3) return "Monitoring";
+  return "Drafting";
+}
+
+function updateTimeline(phase) {
+  const colors = {
+    Planning: "#fb7185",
+    Drafting: "#4ade80",
+    Revising: "#facc15",
+    Monitoring: "#7dd3fc"
+  };
+
+  segments.push({ phase, color: colors[phase] });
+
+  if (segments.length > 50) segments.shift();
+
+  const timeline = document.getElementById("timeline");
+  timeline.innerHTML = "";
+
+  segments.forEach(seg => {
+    const div = document.createElement("div");
+    div.className = "segment";
+    div.style.width = (100 / segments.length) + "%";
+    div.style.background = seg.color;
+    timeline.appendChild(div);
+  });
+}
+
+function update() {
+  const text = editor.value.trim();
+  const words = text ? text.split(/\s+/).length : 0;
+  const now = performance.now();
+  const elapsed = startTime ? now - startTime : 1;
+
+  const pauseLoad = Math.min((totalPauseTime / elapsed) * 100, 100).toFixed(1);
+  const phase = inferPhase();
+
+  document.getElementById("words").textContent = words;
+  document.getElementById("pauseLoad").textContent = pauseLoad + "%";
+  document.getElementById("revisionLoad").textContent = deletions;
+  document.getElementById("monitoringLoad").textContent = scrollReversals;
+  document.getElementById("phase").textContent = phase;
+
+  let effort = "Low";
+  if (pauseLoad > 30 || deletions > 10) effort = "Moderate";
+  if (pauseLoad > 50 || deletions > 20) effort = "High";
+
+  document.getElementById("effort").textContent = effort;
+
+  updateTimeline(phase);
+}
+</script>
+</body>
+</html>
