@@ -72,39 +72,36 @@ h2{margin-top:0;font-weight:500;}
 <body>
 <div class="container">
 
-<!-- Writing Area -->
 <div class="panel">
   <h2>Writing Task</h2>
   <p style="color:var(--muted)">
-    Write your essay naturally. The system observes patterns over time
-    to support your writing process.
+    Write naturally. The system infers dominant SRL phases over time.
   </p>
   <textarea id="editor" placeholder="Start writing here..."></textarea>
   <div id="coach"></div>
 </div>
 
-<!-- Phase Panel -->
 <div class="panel">
-  <h2>Writing Phase Support</h2>
+  <h2>SRL Phase Support</h2>
 
   <div class="metric">
-    <span>Likely Current Phase</span>
+    <span>Dominant Phase</span>
     <strong id="phase">Planning</strong>
   </div>
 
   <div class="metric">
-    <span>Why this phase?</span>
+    <span>Why?</span>
     <strong id="reason">—</strong>
   </div>
 
   <div class="metric">
-    <span>Suggested Focus</span>
+    <span>What helps now</span>
     <strong id="suggestion">—</strong>
   </div>
 </div>
 
 <div class="footer">
-SRL-based writing support · Pattern-based phase inference · Single-file prototype
+Pattern-based SRL phase inference · Single-file prototype
 </div>
 
 </div>
@@ -113,23 +110,25 @@ SRL-based writing support · Pattern-based phase inference · Single-file protot
 const editor = document.getElementById("editor");
 const coach = document.getElementById("coach");
 
-let events = [];
 let startTime = null;
 let lastKeyTime = null;
+let lastWordCount = 0;
+let deletions = 0;
+let events = [];
 
-const WINDOW = 60000; // 60 seconds
-const MICRO = 300;
+const WINDOW = 60000; // 60s
 const INACTIVITY = 120000;
-
 let idleTimer;
 
-// --- Event logging ---
 editor.addEventListener("keydown", e => {
   const now = performance.now();
   if (!startTime) startTime = now;
 
   let type = "type";
-  if (e.key === "Backspace" || e.key === "Delete") type = "delete";
+  if (e.key === "Backspace" || e.key === "Delete") {
+    type = "delete";
+    deletions++;
+  }
 
   events.push({ time: now, type });
   events = events.filter(ev => now - ev.time <= WINDOW);
@@ -140,81 +139,84 @@ editor.addEventListener("keydown", e => {
   updatePhase();
 });
 
-// --- Inactivity support ---
 function resetIdle(){
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     coach.textContent =
-      "You’ve paused for a while. In planning phases, it helps to jot down rough ideas or keywords.";
+      "You paused for a while. This is normal. Decide your next step and continue.";
     coach.style.display = "block";
   }, INACTIVITY);
 }
 function hideCoach(){ coach.style.display = "none"; }
 
-// --- Phase inference ---
+// --- CORE PHASE ENGINE ---
 function inferPhase(){
-  if (events.length < 5) {
-    return {
-      phase: "Planning",
-      reason: "Very little recent activity",
-      suggestion: "Think about your main idea or outline briefly."
-    };
-  }
+  const now = performance.now();
+  const elapsed = startTime ? now - startTime : 1;
+  const words = editor.value.trim().split(/\s+/).filter(Boolean).length;
+  const newWords = Math.max(words - lastWordCount, 0);
+  lastWordCount = words;
 
-  const types = events.map(e => e.type);
-  const deletes = types.filter(t => t === "delete").length;
-  const typesCount = types.length;
+  const deletes = events.filter(e => e.type === "delete").length;
+  const types = events.length || 1;
+  const deleteRatio = deletes / types;
 
-  const deleteRatio = deletes / typesCount;
-  const words = editor.value.trim().split(/\s+/).length;
-  const elapsed = startTime ? performance.now() - startTime : 1;
-  const pauseRatio =
-    lastKeyTime ? (performance.now() - lastKeyTime) / elapsed : 0;
+  const sessionProgress = words / 250; // soft expectation
+  const idleGap = lastKeyTime ? now - lastKeyTime : 0;
 
-  // ---- PLANNING ----
-  if (deleteRatio > 0.35 || words < 40) {
-    return {
-      phase: "Planning",
-      reason: "Short bursts, revisions, or early drafting",
-      suggestion: "List ideas, write fragments, or sketch your structure."
-    };
-  }
-
-  // ---- MONITORING ----
-  if (deleteRatio > 0.2 && words > 60) {
-    return {
-      phase: "Monitoring",
-      reason: "Frequent revisions of existing text",
-      suggestion: "Check clarity and organization, not small details yet."
-    };
-  }
-
-  // ---- PERFORMANCE ----
-  if (deleteRatio < 0.15 && pauseRatio < 0.25) {
-    return {
-      phase: "Performance",
-      reason: "Sustained writing with few interruptions",
-      suggestion: "Focus on expressing ideas without over-editing."
-    };
-  }
-
-  // ---- REFLECTION ----
-  if (words > 200 && pauseRatio > 0.4) {
-    return {
-      phase: "Reflection",
-      reason: "Writing slowed after substantial text",
-      suggestion: "Think about strengths and what you’d revise next."
-    };
-  }
-
-  return {
-    phase: "Planning",
-    reason: "Mixed signals",
-    suggestion: "Clarify your next idea before continuing."
+  // ---- PHASE SCORES ----
+  let scores = {
+    Planning: 0,
+    Performance: 0,
+    Monitoring: 0,
+    Reflection: 0
   };
+
+  // Planning
+  if (words < 60) scores.Planning += 2;
+  if (deleteRatio > 0.3) scores.Planning += 1;
+  if (sessionProgress < 0.3) scores.Planning += 1;
+
+  // Performance
+  if (newWords > 8) scores.Performance += 2;
+  if (deleteRatio < 0.2) scores.Performance += 1;
+  if (sessionProgress > 0.2 && sessionProgress < 0.8) scores.Performance += 1;
+
+  // Monitoring
+  if (deleteRatio > 0.25 && words > 80) scores.Monitoring += 2;
+  if (newWords < 5 && deletes > 3) scores.Monitoring += 1;
+
+  // Reflection
+  if (words > 180) scores.Reflection += 1;
+  if (idleGap > 4000 && sessionProgress > 0.7) scores.Reflection += 2;
+  if (newWords === 0 && words > 150) scores.Reflection += 1;
+
+  // Pick dominant phase
+  let phase = Object.keys(scores)
+    .reduce((a, b) => scores[a] > scores[b] ? a : b);
+
+  const explanations = {
+    Planning: {
+      reason: "Early-stage writing and idea shaping",
+      suggestion: "Outline ideas or write rough notes."
+    },
+    Performance: {
+      reason: "Sustained idea execution",
+      suggestion: "Keep expressing ideas without over-editing."
+    },
+    Monitoring: {
+      reason: "Active reviewing and revising",
+      suggestion: "Check clarity and structure."
+    },
+    Reflection: {
+      reason: "Writing slowed after substantial progress",
+      suggestion: "Evaluate strengths and improvements."
+    }
+  };
+
+  return { phase, ...explanations[phase] };
 }
 
-// --- Update UI ---
 function updatePhase(){
   const result = inferPhase();
   document.getElementById("phase").textContent = result.phase;
