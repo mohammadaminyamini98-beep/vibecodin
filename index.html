@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Hover Tiles — Bach Minuet</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>Tiles — Hover (Desktop) / Tap (Mobile) + Music</title>
   <style>
     :root { color-scheme: dark; }
     body{
@@ -11,8 +11,10 @@
       background:#0b0b10; color:#eaeaf2;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       user-select:none;
+      -webkit-user-select:none;
     }
-    .wrap{ width:min(560px, 94vw); }
+    .wrap{ width:min(580px, 94vw); }
+
     .top{
       display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
       margin-bottom:10px;
@@ -23,20 +25,24 @@
       background:rgba(255,255,255,0.06);
       font-size:12px; opacity:0.92;
     }
+
     .game{
       position:relative;
-      height: 680px;
+      height: 700px;
       border-radius: 20px;
       border:1px solid rgba(255,255,255,0.14);
       overflow:hidden;
       background: linear-gradient(180deg, rgba(80,190,220,0.35), rgba(20,20,28,0.0) 55%, rgba(20,20,28,0.35));
       box-shadow:0 10px 35px rgba(0,0,0,0.35);
       cursor: crosshair;
+
+      /* critical for mobile: prevent scroll/zoom conflicts */
+      touch-action: manipulation;
     }
     canvas{ width:100%; height:100%; display:block; }
 
     .overlay{
-      position:absolute; left:0; right:0; top:0; bottom:0;
+      position:absolute; inset:0;
       pointer-events:none;
       display:flex; flex-direction:column; justify-content:space-between;
       padding:10px;
@@ -55,16 +61,17 @@
     }
     .centerHint{
       margin: 0 auto;
-      width: min(460px, 92%);
+      width: min(480px, 92%);
       text-align:center;
       padding:10px 12px;
       border-radius:14px;
       border:1px solid rgba(255,255,255,0.12);
       background: rgba(0,0,0,0.22);
       font-weight:800;
-      letter-spacing:0.4px;
+      letter-spacing:0.3px;
     }
     .big{ font-size:22px; }
+
     .controls{
       margin-top:10px;
       display:flex; gap:10px; flex-wrap:wrap; align-items:center;
@@ -75,7 +82,6 @@
       color:#fff; border-radius:12px;
       padding:10px 12px; cursor:pointer;
     }
-    input[type="range"]{ width:240px; }
     .status{
       margin-top:10px; padding:10px 12px;
       border-radius:12px;
@@ -89,7 +95,7 @@
 <body>
   <div class="wrap">
     <div class="top">
-      <span class="pill">How: keep cursor near hit zone • when tile reaches green band → HOVER it to play the next note</span>
+      <span class="pill">Mode: <span id="mode">—</span></span>
       <span class="pill">Score: <span id="score">0</span></span>
       <span class="pill">Best: <span id="best">0</span></span>
       <span class="pill">Speed: <span id="spd">1.00×</span></span>
@@ -98,14 +104,15 @@
 
     <div class="game" id="game">
       <canvas id="cv"></canvas>
+
       <div class="overlay">
         <div class="hudrow">
-          <div class="chip">Hover Tiles — “Minuet in G” (Bach-style)</div>
+          <div class="chip">Tiles + Music</div>
           <div class="chip" id="hudRight">Ready</div>
         </div>
 
         <div class="centerHint" id="centerHint">
-          Click <b>Start</b> (audio permission). Then: <span class="big">HOVER the tile on the green hit band</span> to play the melody.
+          Press <b>Start</b> (enables audio). Then follow the instruction.
         </div>
 
         <div class="hudrow">
@@ -118,461 +125,551 @@
     <div class="controls">
       <button id="startBtn">Start (Audio + Game)</button>
       <button id="resetBtn">Reset</button>
-      <span class="pill">Challenge</span>
-      <input id="challenge" type="range" min="0" max="10" value="7" />
-      <span class="pill"><span id="chLabel">7</span>/10</span>
     </div>
 
-    <div id="status" class="status">No sound until you press Start (browser rule).</div>
+    <div id="status" class="status">
+      Desktop: hover the tile on the green band. Mobile: tap the lane/tile on the green band.
+    </div>
   </div>
 
-  <!-- Tone.js for clean synth + timing -->
   <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
-<script>
-(() => {
-  const LANES = 4;
+  <script>
+  (() => {
+    // =============================
+    // INPUT MODE: hover vs tap
+    // =============================
+    const CAN_HOVER = window.matchMedia("(hover: hover)").matches;
+    const INPUT_MODE = CAN_HOVER ? "hover" : "tap";
+    document.getElementById("mode").textContent = INPUT_MODE.toUpperCase();
 
-  // ===== Canvas =====
-  const gameEl = document.getElementById("game");
-  const cv = document.getElementById("cv");
-  const ctx = cv.getContext("2d");
-  function resize(){
-    const r = cv.getBoundingClientRect();
-    cv.width  = Math.floor(r.width * devicePixelRatio);
-    cv.height = Math.floor(r.height * devicePixelRatio);
-  }
-  window.addEventListener("resize", resize);
-  resize();
+    // =============================
+    // CANVAS
+    // =============================
+    const gameEl = document.getElementById("game");
+    const cv = document.getElementById("cv");
+    const ctx = cv.getContext("2d");
 
-  // ===== UI =====
-  const scoreEl = document.getElementById("score");
-  const bestEl  = document.getElementById("best");
-  const spdEl   = document.getElementById("spd");
-  const winEl   = document.getElementById("win");
-  const statusEl= document.getElementById("status");
-  const hudRight= document.getElementById("hudRight");
-  const centerHint = document.getElementById("centerHint");
-  const noteHint = document.getElementById("noteHint");
-  const stepHint = document.getElementById("stepHint");
-
-  const challengeEl = document.getElementById("challenge");
-  const chLabel = document.getElementById("chLabel");
-  chLabel.textContent = challengeEl.value;
-
-  function setStatus(t, kind=""){
-    statusEl.className = "status " + kind;
-    statusEl.textContent = t;
-  }
-
-  // ===== Best score =====
-  const BEST_KEY = "hover_tiles_bach_best_v1";
-  let best = Number(localStorage.getItem(BEST_KEY) || 0);
-  bestEl.textContent = best;
-
-  // ===== Audio =====
-  // Simple pleasant synth; swap oscillator type if you want.
-  const synth = new Tone.Synth({
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.01, decay: 0.08, sustain: 0.2, release: 0.15 }
-  }).toDestination();
-
-  // ===== Track geometry (CSS px) =====
-  const TOP_WIDTH_FRAC = 0.42;
-  const BOT_WIDTH_FRAC = 0.96;
-  const TRACK_TOP_Y_FRAC = 0.12;
-  const TRACK_BOT_Y_FRAC = 0.98;
-
-  // Hit zone
-  const HIT_Y_FRAC = 0.86;
-  let hitWindow = 0.028;          // will shrink with difficulty
-  const TILE_LENGTH_FRAC = 0.11;
-
-  // ===== Speed model (simple but challenging) =====
-  const BASE_UNITS_PER_SEC = 0.62;
-  let speed = 1.0;
-
-  // ===== "Well-known Bach-style" melody data =====
-  // Minuet in G (opening melody line) - simplified single-note sequence.
-  // Notes: G A B C D E F# G ... (recognizable).
-  // We'll loop this to ~1 minute by repeating.
-  //
-  // Each entry: { note, lane }.
-  // lane mapping keeps a “melodic contour” across 4 lanes.
-  const MELODY = [
-    {n:"G4", l:1},{n:"A4", l:2},{n:"B4", l:3},{n:"C5", l:3},
-    {n:"D5", l:2},{n:"E5", l:2},{n:"F#5",l:3},{n:"G5", l:3},
-    {n:"D5", l:2},{n:"E5", l:2},{n:"C5", l:3},{n:"B4", l:3},
-    {n:"A4", l:2},{n:"G4", l:1},{n:"A4", l:2},{n:"B4", l:3},
-    {n:"C5", l:3},{n:"D5", l:2},{n:"B4", l:3},{n:"C5", l:3},
-    {n:"A4", l:2},{n:"B4", l:3},{n:"G4", l:1}
-  ];
-
-  // Build ~60s plan: repeat melody many times.
-  // Gap is "musical spacing" (smaller is faster). Speed-up will shorten effective timing.
-  function buildPlan(targetSeconds=62){
-    const plan = [];
-    let t = 0;
-    const baseGap = 0.34; // base spacing at speed=1
-    while (t < targetSeconds){
-      for (const step of MELODY){
-        plan.push({ note: step.n, lane: step.l, gap: baseGap });
-        // tiny rhythmic variation
-        t += baseGap;
-        if (t >= targetSeconds) break;
-      }
-      // breath between phrases
-      t += 0.25;
+    function resize(){
+      const r = cv.getBoundingClientRect();
+      cv.width  = Math.floor(r.width * devicePixelRatio);
+      cv.height = Math.floor(r.height * devicePixelRatio);
     }
-    return plan;
-  }
-  const plan = buildPlan(62);
+    window.addEventListener("resize", resize);
+    resize();
 
-  // ===== State =====
-  let running = false;
-  let gameOver = false;
-  let startedAudio = false;
+    // =============================
+    // UI
+    // =============================
+    const scoreEl = document.getElementById("score");
+    const bestEl  = document.getElementById("best");
+    const spdEl   = document.getElementById("spd");
+    const winEl   = document.getElementById("win");
+    const statusEl= document.getElementById("status");
+    const hudRight= document.getElementById("hudRight");
+    const centerHint = document.getElementById("centerHint");
+    const noteHint = document.getElementById("noteHint");
+    const stepHint = document.getElementById("stepHint");
 
-  let score = 0;
-  let startTs = 0;
-  let lastTs = 0;
+    function setStatus(t, kind=""){
+      statusEl.className = "status " + kind;
+      statusEl.textContent = t;
+    }
 
-  let stepIdx = 0;
-  let nextSpawnAt = 0;
+    // =============================
+    // BEST SCORE
+    // =============================
+    const BEST_KEY = "tiles_hover_tap_music_best_v1";
+    let best = Number(localStorage.getItem(BEST_KEY) || 0);
+    bestEl.textContent = best;
 
-  // One active tile: { lane, s, note }
-  let tile = null;
+    // =============================
+    // AUDIO (plays notes on hits)
+    // =============================
+    const synth = new Tone.Synth({
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.01, decay: 0.08, sustain: 0.2, release: 0.15 }
+    }).toDestination();
 
-  // Pointer (CSS px)
-  let pointer = { x: -9999, y: -9999 };
+    function playNote(note, speed){
+      const dur = Math.max(0.08, 0.18 / speed);
+      synth.triggerAttackRelease(note, dur);
+    }
 
-  // ===== Track helpers =====
-  function trackParams(){
-    const w = cv.getBoundingClientRect().width;
-    const h = cv.getBoundingClientRect().height;
-    const topY = h * TRACK_TOP_Y_FRAC;
-    const botY = h * TRACK_BOT_Y_FRAC;
-    const topW = w * TOP_WIDTH_FRAC;
-    const botW = w * BOT_WIDTH_FRAC;
-    const cx = w / 2;
-    return { w, h, cx, topY, botY, topW, botW };
-  }
+    // =============================
+    // GAME GEOMETRY
+    // =============================
+    const LANES = 4;
 
-  function laneXAtY(laneIndex, y, tp){
-    const t = (y - tp.topY) / (tp.botY - tp.topY);
-    const width = tp.topW + (tp.botW - tp.topW) * t;
-    const left = tp.cx - width / 2;
-    const laneW = width / LANES;
-    return { left, laneW, x: left + laneIndex * laneW };
-  }
+    // perspective runway
+    const TOP_WIDTH_FRAC = 0.42;
+    const BOT_WIDTH_FRAC = 0.96;
+    const TRACK_TOP_Y_FRAC = 0.12;
+    const TRACK_BOT_Y_FRAC = 0.98;
 
-  function yFromS(s, tp){
-    const eased = Math.pow(s, 1.35);
-    return tp.topY + (tp.botY - tp.topY) * eased;
-  }
+    // hit zone
+    const HIT_Y_FRAC = 0.86;
+    const TILE_LENGTH_FRAC = 0.11;
 
-  function tilePoly(lane, sTop, sBot, tp){
-    const y1 = yFromS(sTop, tp);
-    const y2 = yFromS(sBot, tp);
+    // =============================
+    // DIFFICULTY (simple + challenging)
+    // =============================
+    const BASE_UNITS_PER_SEC = 0.62;
+    let speed = 1.0;
 
-    const a1 = laneXAtY(lane, y1, tp);
-    const a2 = laneXAtY(lane, y2, tp);
+    // timing window shrinks as speed increases
+    const WIN_BASE = 0.028;
+    const WIN_MIN  = 0.014;
+    function currentWindow(){
+      // shrink gradually as speed grows
+      const shrink = Math.min(0.50, (speed - 1) * 0.06); // up to -50%
+      const w = Math.max(WIN_MIN, WIN_BASE * (1 - shrink));
+      winEl.textContent = String(Math.round((w / WIN_BASE) * 100));
+      return w;
+    }
 
-    const inset = 0.08;
-    const x1L = a1.x + a1.laneW * inset;
-    const x1R = a1.x + a1.laneW * (1 - inset);
-    const x2L = a2.x + a2.laneW * inset;
-    const x2R = a2.x + a2.laneW * (1 - inset);
+    // speed gain per successful hit (main challenge)
+    function speedGain(){
+      // increases slightly as you go (keeps it tough)
+      return 0.04 + Math.min(0.05, (speed - 1) * 0.01); // ~0.04..0.09
+    }
 
-    return [
-      {x:x1L, y:y1},
-      {x:x1R, y:y1},
-      {x:x2R, y:y2},
-      {x:x2L, y:y2},
+    // =============================
+    // MUSIC PLAN (Bach-style "Minuet in G" melody line, simplified)
+    // =============================
+    // We'll sequence notes; each note also maps to a lane (for the tiles).
+    // Common teaching piece, public domain era. We repeat to ~1 minute.
+    const MELODY = [
+      "G4","A4","B4","C5","D5","E5","F#5","G5",
+      "D5","E5","C5","B4","A4","G4","A4","B4",
+      "C5","D5","B4","C5","A4","B4","G4"
     ];
-  }
 
-  function pointInPoly(px, py, poly){
-    let inside = false;
-    for (let i=0, j=poly.length-1; i<poly.length; j=i++){
-      const xi = poly[i].x, yi = poly[i].y;
-      const xj = poly[j].x, yj = poly[j].y;
-      const intersect = ((yi > py) !== (yj > py)) &&
-        (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi);
-      if (intersect) inside = !inside;
+    // Map notes into 4 lanes (keeps movement “musical”)
+    const laneMap = (note) => {
+      // simple contour mapping by pitch class bucket
+      // low -> lane 0, mid -> lane 1/2, high -> lane 3
+      const pitch = note.replace("#","").replace(/[0-9]/g,"");
+      if (pitch === "G") return 1;
+      if (pitch === "A") return 2;
+      if (pitch === "B") return 3;
+      if (pitch === "C") return 3;
+      if (pitch === "D") return 2;
+      if (pitch === "E") return 2;
+      if (pitch === "F") return 3;
+      return 1;
+    };
+
+    function buildPlan(targetSeconds=62){
+      const plan = [];
+      let t = 0;
+      const baseGap = 0.34;
+      while (t < targetSeconds){
+        for (const n of MELODY){
+          plan.push({ note:n, lane: laneMap(n), gap: baseGap });
+          t += baseGap;
+          if (t >= targetSeconds) break;
+        }
+        t += 0.25;
+      }
+      return plan;
     }
-    return inside;
-  }
+    const plan = buildPlan(62);
 
-  function hitS(tp){
-    const yTarget = tp.h * HIT_Y_FRAC;
-    let lo = 0, hi = 1;
-    for (let i=0;i<18;i++){
-      const mid = (lo+hi)/2;
-      const y = yFromS(mid, tp);
-      if (y < yTarget) lo = mid; else hi = mid;
-    }
-    return (lo+hi)/2;
-  }
-
-  // ===== Difficulty controls =====
-  function computeDifficulty(){
-    const ch = Number(challengeEl.value); // 0..10
-    // Larger challenge = faster speed gains + smaller hit window
-    const windowScale = 1 - (ch/10)*0.35;     // up to 35% smaller
-    const minWin = 0.016;
-    hitWindow = Math.max(minWin, 0.028 * windowScale);
-    winEl.textContent = Math.round((hitWindow/0.028)*100);
-
-    // speed gain per hit
-    const speedGain = 0.02 + (ch/10)*0.05;     // 0.02 .. 0.07
-    return { speedGain };
-  }
-  challengeEl.addEventListener("input", ()=>{
-    chLabel.textContent = challengeEl.value;
-    computeDifficulty();
-  });
-
-  // ===== Lifecycle =====
-  function reset(){
-    running = false;
-    gameOver = false;
-    score = 0;
-    speed = 1.0;
-    stepIdx = 0;
-    nextSpawnAt = 0;
-    tile = null;
-
-    scoreEl.textContent = "0";
-    spdEl.textContent = "1.00×";
-    hudRight.textContent = "Ready";
-    noteHint.textContent = "Next note: —";
-    stepHint.textContent = "Step: 0";
-    centerHint.innerHTML = startedAudio
-      ? 'Ready. <span class="big">HOVER on the green band</span> to play notes.'
-      : 'Click <b>Start</b> to enable audio. Then hover-hit tiles to play the melody.';
-    setStatus("Press Start. (Audio needs a click.)", "");
-    computeDifficulty();
-    draw();
-  }
-
-  async function start(){
-    if (running) return;
-
-    // start audio (required by browsers)
-    if (!startedAudio){
-      await Tone.start();
-      startedAudio = true;
+    // =============================
+    // TRACK HELPERS
+    // =============================
+    function trackParams(){
+      const w = cv.getBoundingClientRect().width;
+      const h = cv.getBoundingClientRect().height;
+      const topY = h * TRACK_TOP_Y_FRAC;
+      const botY = h * TRACK_BOT_Y_FRAC;
+      const topW = w * TOP_WIDTH_FRAC;
+      const botW = w * BOT_WIDTH_FRAC;
+      const cx = w / 2;
+      return { w, h, cx, topY, botY, topW, botW };
     }
 
-    reset();
-    running = true;
-    startTs = performance.now();
-    lastTs = startTs;
-    hudRight.textContent = "GO";
-    setStatus("GO! Hover-hit the tile on the green band. Each hit plays the next note.", "ok");
-    requestAnimationFrame(loop);
-  }
-
-  function end(msg, good=false){
-    running = false;
-    gameOver = true;
-    hudRight.textContent = "STOP";
-    centerHint.textContent = good ? "FINISHED ✅" : "MISS ❌";
-    setStatus(msg + " Press Reset or Start.", good ? "ok" : "bad");
-
-    if (score > best){
-      best = score;
-      localStorage.setItem(BEST_KEY, String(best));
-      bestEl.textContent = best;
-      setStatus(msg + " NEW BEST ✅", "ok");
+    function laneXAtY(laneIndex, y, tp){
+      const t = (y - tp.topY) / (tp.botY - tp.topY);
+      const width = tp.topW + (tp.botW - tp.topW) * t;
+      const left = tp.cx - width / 2;
+      const laneW = width / LANES;
+      return { left, laneW, x: left + laneIndex * laneW };
     }
-  }
 
-  document.getElementById("startBtn").addEventListener("click", start);
-  document.getElementById("resetBtn").addEventListener("click", reset);
+    function yFromS(s, tp){
+      const eased = Math.pow(s, 1.35);
+      return tp.topY + (tp.botY - tp.topY) * eased;
+    }
 
-  function spawnNext(){
-    if (stepIdx >= plan.length) return;
-    const st = plan[stepIdx];
-    tile = { lane: st.lane, s: -0.15, note: st.note };
-    noteHint.textContent = `Next note: ${st.note}`;
-    stepHint.textContent = `Step: ${stepIdx + 1}/${plan.length}`;
-    centerHint.innerHTML = '<span class="big">HOVER NOW!</span> on the green band';
-  }
+    function tilePoly(lane, sTop, sBot, tp){
+      const y1 = yFromS(sTop, tp);
+      const y2 = yFromS(sBot, tp);
 
-  function playNote(note){
-    // Note duration scales with speed (faster speed = shorter notes)
-    const dur = Math.max(0.08, 0.18 / speed);
-    synth.triggerAttackRelease(note, dur);
-  }
+      const a1 = laneXAtY(lane, y1, tp);
+      const a2 = laneXAtY(lane, y2, tp);
 
-  function scheduleNext(songTimeSec){
-    stepIdx++;
-    if (stepIdx >= plan.length){
+      const inset = 0.08;
+      const x1L = a1.x + a1.laneW * inset;
+      const x1R = a1.x + a1.laneW * (1 - inset);
+      const x2L = a2.x + a2.laneW * inset;
+      const x2R = a2.x + a2.laneW * (1 - inset);
+
+      return [
+        {x:x1L, y:y1},
+        {x:x1R, y:y1},
+        {x:x2R, y:y2},
+        {x:x2L, y:y2},
+      ];
+    }
+
+    function pointInPoly(px, py, poly){
+      let inside = false;
+      for (let i=0, j=poly.length-1; i<poly.length; j=i++){
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        const intersect = ((yi > py) !== (yj > py)) &&
+          (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function hitS(tp){
+      const yTarget = tp.h * HIT_Y_FRAC;
+      let lo = 0, hi = 1;
+      for (let i=0;i<18;i++){
+        const mid = (lo+hi)/2;
+        const y = yFromS(mid, tp);
+        if (y < yTarget) lo = mid; else hi = mid;
+      }
+      return (lo+hi)/2;
+    }
+
+    function laneFromXAtHit(xCss, tp){
+      const y = tp.h * HIT_Y_FRAC;
+      const a = laneXAtY(0, y, tp);
+      const left = a.left;
+      const laneW = a.laneW;
+      const idx = Math.floor((xCss - left) / laneW);
+      if (idx < 0 || idx >= LANES) return null;
+      return idx;
+    }
+
+    // =============================
+    // GAME STATE
+    // =============================
+    let running = false;
+    let startedAudio = false;
+    let score = 0;
+    let startTs = 0;
+    let lastTs = 0;
+
+    let stepIdx = 0;
+    let nextSpawnAt = 0;
+
+    // one tile at a time
+    let tile = null; // { lane, s, note }
+    let pointer = { x:-9999, y:-9999 }; // css px
+
+    // =============================
+    // LIFECYCLE
+    // =============================
+    function reset(){
+      running = false;
+      score = 0;
+      speed = 1.0;
+      stepIdx = 0;
+      nextSpawnAt = 0;
       tile = null;
-      end("Finished the piece!", true);
-      return;
+
+      scoreEl.textContent = "0";
+      spdEl.textContent = "1.00×";
+      hudRight.textContent = "Ready";
+      noteHint.textContent = "Next note: —";
+      stepHint.textContent = "Step: 0";
+      currentWindow();
+
+      const how = (INPUT_MODE === "hover")
+        ? "Desktop: HOVER the tile when it reaches the green band (no click)."
+        : "Mobile: TAP the lane/tile when it reaches the green band.";
+      centerHint.innerHTML = `Press <b>Start</b>. Then: <span class="big">${INPUT_MODE === "hover" ? "HOVER" : "TAP"}</span> on the green band.`;
+      setStatus(how, "");
+      draw();
     }
-    // next gap shrinks with speed (challenge)
-    const gap = plan[stepIdx].gap / speed;
-    nextSpawnAt = songTimeSec + gap;
-    tile = null;
-    centerHint.innerHTML = 'Get ready… <span class="big">NEXT</span>';
-  }
 
-  function update(dt, songTimeSec){
-    // spawn if needed
-    if (!tile && stepIdx < plan.length && songTimeSec >= nextSpawnAt){
-      spawnNext();
+    async function start(){
+      if (running) return;
+
+      // Browser audio restriction: must start from user gesture
+      if (!startedAudio){
+        await Tone.start();
+        startedAudio = true;
+      }
+
+      reset();
+      running = true;
+      startTs = performance.now();
+      lastTs = startTs;
+      hudRight.textContent = "GO";
+      setStatus("GO! Each correct hit plays the next note. Speed will increase.", "ok");
+      requestAnimationFrame(loop);
     }
-    if (!tile) return;
 
-    // move tile
-    tile.s += (BASE_UNITS_PER_SEC * speed) * dt;
+    function end(msg){
+      running = false;
+      hudRight.textContent = "STOP";
+      setStatus(msg + " Press Reset or Start.", "bad");
 
-    const tp = trackParams();
-    const sHit = hitS(tp);
-    const win = hitWindow;
+      if (score > best){
+        best = score;
+        localStorage.setItem(BEST_KEY, String(best));
+        bestEl.textContent = best;
+        setStatus(msg + " NEW BEST ✅", "ok");
+      }
+    }
 
-    const sTop = tile.s;
-    const sBot = tile.s + TILE_LENGTH_FRAC;
+    document.getElementById("startBtn").addEventListener("click", start);
+    document.getElementById("resetBtn").addEventListener("click", reset);
 
-    const poly = tilePoly(tile.lane, sTop, sBot, tp);
-    const hovering = pointInPoly(pointer.x, pointer.y, poly);
+    function spawnNext(){
+      if (stepIdx >= plan.length) return;
+      const st = plan[stepIdx];
+      tile = { lane: st.lane, s: -0.15, note: st.note };
+      noteHint.textContent = `Next note: ${st.note}`;
+      stepHint.textContent = `Step: ${stepIdx + 1}/${plan.length}`;
+      centerHint.innerHTML = (INPUT_MODE === "hover")
+        ? '<span class="big">HOVER NOW!</span> (on green band)'
+        : '<span class="big">TAP NOW!</span> (on green band)';
+    }
 
-    // hit condition
-    const dist = Math.abs(sBot - sHit);
-    if (dist <= win && hovering){
-      // play the note
-      playNote(tile.note);
+    function scheduleNext(songTimeSec){
+      stepIdx++;
+      if (stepIdx >= plan.length){
+        tile = null;
+        running = false;
+        hudRight.textContent = "DONE";
+        setStatus("Finished the piece! Press Start to replay faster.", "ok");
 
-      // score + difficulty
+        if (score > best){
+          best = score;
+          localStorage.setItem(BEST_KEY, String(best));
+          bestEl.textContent = best;
+        }
+        return;
+      }
+      const gap = plan[stepIdx].gap / speed; // shrinks as speed rises
+      nextSpawnAt = songTimeSec + gap;
+      tile = null;
+      centerHint.innerHTML = 'Get ready…';
+    }
+
+    function registerHit(songTimeSec){
+      // play note first
+      playNote(tile.note, speed);
+
+      // score
       score += 100;
       scoreEl.textContent = String(score);
 
-      const { speedGain } = computeDifficulty();
-      speed += speedGain;
+      // difficulty up
+      speed += speedGain();
       spdEl.textContent = speed.toFixed(2) + "×";
+      currentWindow();
 
       hudRight.textContent = "NICE";
       setTimeout(() => { if (running) hudRight.textContent = "GO"; }, 120);
 
       scheduleNext(songTimeSec);
-      return;
     }
 
-    // miss
-    if (sBot > sHit + win){
-      end("Miss! You didn’t hover-hit the tile at the hit band.", false);
-      return;
-    }
-  }
+    // =============================
+    // INPUT
+    // =============================
 
-  function loop(ts){
-    if (!running){ draw(); return; }
+    // Track pointer for hover mode (desktop)
+    gameEl.addEventListener("pointermove", (e) => {
+      const r = gameEl.getBoundingClientRect();
+      pointer.x = e.clientX - r.left;
+      pointer.y = e.clientY - r.top;
+    });
+    gameEl.addEventListener("pointerleave", () => {
+      pointer.x = -9999; pointer.y = -9999;
+    });
 
-    const dt = Math.min(0.033, (ts - lastTs) / 1000);
-    lastTs = ts;
+    // Tap mode (mobile): pointerdown attempts a hit
+    gameEl.addEventListener("pointerdown", (e) => {
+      if (!running || INPUT_MODE !== "tap") return;
+      const r = gameEl.getBoundingClientRect();
+      const x = e.clientX - r.left;
 
-    const songTimeSec = (ts - startTs) / 1000;
+      // Require a tile to exist
+      if (!tile) { end("Tapped with no tile."); return; }
 
-    update(dt, songTimeSec);
-    draw();
+      const tp = trackParams();
+      const lane = laneFromXAtHit(x, tp);
+      if (lane == null) return;
 
-    requestAnimationFrame(loop);
-  }
+      // Must tap correct lane AND tile must be in the hit window
+      const sHit = hitS(tp);
+      const win = currentWindow();
+      const sBot = tile.s + TILE_LENGTH_FRAC;
+      const dist = Math.abs(sBot - sHit);
 
-  // ===== Pointer tracking =====
-  gameEl.addEventListener("pointermove", (e)=>{
-    const r = gameEl.getBoundingClientRect();
-    pointer.x = e.clientX - r.left;
-    pointer.y = e.clientY - r.top;
-  });
-  gameEl.addEventListener("pointerleave", ()=>{
-    pointer.x = -9999; pointer.y = -9999;
-  });
+      if (lane === tile.lane && dist <= win){
+        const songTimeSec = (performance.now() - startTs) / 1000;
+        registerHit(songTimeSec);
+      } else {
+        end("Wrong tap / wrong timing!");
+      }
+    });
 
-  // ===== Draw =====
-  function draw(){
-    const tp = trackParams();
-    ctx.clearRect(0,0,cv.width,cv.height);
+    // =============================
+    // UPDATE LOOP
+    // =============================
+    function update(dt, songTimeSec){
+      // spawn if none
+      if (!tile && stepIdx < plan.length && songTimeSec >= nextSpawnAt){
+        spawnNext();
+      }
+      if (!tile) return;
 
-    ctx.save();
-    ctx.scale(devicePixelRatio, devicePixelRatio);
+      // move
+      tile.s += (BASE_UNITS_PER_SEC * speed) * dt;
 
-    // runway trapezoid
-    const topLeft  = { x: tp.cx - tp.topW/2, y: tp.topY };
-    const topRight = { x: tp.cx + tp.topW/2, y: tp.topY };
-    const botLeft  = { x: tp.cx - tp.botW/2, y: tp.botY };
-    const botRight = { x: tp.cx + tp.botW/2, y: tp.botY };
+      const tp = trackParams();
+      const sHit = hitS(tp);
+      const win = currentWindow();
 
-    ctx.beginPath();
-    ctx.moveTo(topLeft.x, topLeft.y);
-    ctx.lineTo(topRight.x, topRight.y);
-    ctx.lineTo(botRight.x, botRight.y);
-    ctx.lineTo(botLeft.x, botLeft.y);
-    ctx.closePath();
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // lanes
-    ctx.strokeStyle = "rgba(0,0,0,0.12)";
-    ctx.lineWidth = 2;
-    for (let i=1;i<LANES;i++){
-      const tX = (tp.cx - tp.topW/2) + (tp.topW/LANES)*i;
-      const bX = (tp.cx - tp.botW/2) + (tp.botW/LANES)*i;
-      ctx.beginPath();
-      ctx.moveTo(tX, tp.topY);
-      ctx.lineTo(bX, tp.botY);
-      ctx.stroke();
-    }
-
-    // HIT BAND (very clear)
-    const yHit = tp.h * HIT_Y_FRAC;
-    const a = laneXAtY(0, yHit, tp);
-    const left = a.left;
-    const width = a.laneW * LANES;
-
-    ctx.fillStyle = "rgba(76,175,80,0.12)";
-    ctx.fillRect(left, yHit - 24, width, 48);
-
-    ctx.fillStyle = "rgba(255,255,255,0.12)";
-    ctx.fillRect(left, yHit - 2, width, 4);
-
-    // draw tile
-    if (tile){
       const sTop = tile.s;
       const sBot = tile.s + TILE_LENGTH_FRAC;
-      const poly = tilePoly(tile.lane, sTop, sBot, tp);
-      const hovering = pointInPoly(pointer.x, pointer.y, poly);
 
-      // highlight target lane near hit band
-      const laneInfo = laneXAtY(tile.lane, yHit, tp);
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
-      ctx.fillRect(laneInfo.x, yHit - 70, laneInfo.laneW, 140);
+      // desktop hover hit
+      if (INPUT_MODE === "hover"){
+        const poly = tilePoly(tile.lane, sTop, sBot, tp);
+        const hovering = pointInPoly(pointer.x, pointer.y, poly);
+        const dist = Math.abs(sBot - sHit);
 
-      ctx.beginPath();
-      ctx.moveTo(poly[0].x, poly[0].y);
-      for (let i=1;i<poly.length;i++) ctx.lineTo(poly[i].x, poly[i].y);
-      ctx.closePath();
+        if (dist <= win && hovering){
+          registerHit(songTimeSec);
+          return;
+        }
+      }
 
-      ctx.fillStyle = hovering ? "rgba(25,25,32,1)" : "rgba(15,15,20,1)";
-      ctx.fill();
-
-      ctx.strokeStyle = hovering ? "rgba(76,175,80,0.60)" : "rgba(255,255,255,0.12)";
-      ctx.lineWidth = hovering ? 2 : 1;
-      ctx.stroke();
+      // miss
+      if (sBot > sHit + win){
+        end("Miss!");
+        return;
+      }
     }
 
-    ctx.restore();
-  }
+    function loop(ts){
+      if (!running){ draw(); return; }
+      const dt = Math.min(0.033, (ts - lastTs) / 1000);
+      lastTs = ts;
 
-  reset();
-})();
-</script>
+      const songTimeSec = (ts - startTs) / 1000;
+      update(dt, songTimeSec);
+      draw();
+
+      requestAnimationFrame(loop);
+    }
+
+    // =============================
+    // DRAW
+    // =============================
+    function draw(){
+      const tp = trackParams();
+      ctx.clearRect(0,0,cv.width,cv.height);
+
+      ctx.save();
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+
+      // runway trapezoid
+      const topLeft  = { x: tp.cx - tp.topW/2, y: tp.topY };
+      const topRight = { x: tp.cx + tp.topW/2, y: tp.topY };
+      const botLeft  = { x: tp.cx - tp.botW/2, y: tp.botY };
+      const botRight = { x: tp.cx + tp.botW/2, y: tp.botY };
+
+      ctx.beginPath();
+      ctx.moveTo(topLeft.x, topLeft.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(botRight.x, botRight.y);
+      ctx.lineTo(botLeft.x, botLeft.y);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,255,255,0.10)";
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // lane lines
+      ctx.strokeStyle = "rgba(0,0,0,0.12)";
+      ctx.lineWidth = 2;
+      for (let i=1;i<LANES;i++){
+        const tX = (tp.cx - tp.topW/2) + (tp.topW/LANES)*i;
+        const bX = (tp.cx - tp.botW/2) + (tp.botW/LANES)*i;
+        ctx.beginPath();
+        ctx.moveTo(tX, tp.topY);
+        ctx.lineTo(bX, tp.botY);
+        ctx.stroke();
+      }
+
+      // HIT BAND (clear)
+      const yHit = tp.h * HIT_Y_FRAC;
+      const a = laneXAtY(0, yHit, tp);
+      const left = a.left;
+      const width = a.laneW * LANES;
+
+      ctx.fillStyle = "rgba(76,175,80,0.14)";
+      ctx.fillRect(left, yHit - 26, width, 52);
+
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.fillRect(left, yHit - 2, width, 4);
+
+      // draw tile
+      if (tile){
+        const sTop = tile.s;
+        const sBot = tile.s + TILE_LENGTH_FRAC;
+        const poly = tilePoly(tile.lane, sTop, sBot, tp);
+
+        const hovering = (INPUT_MODE === "hover") ? pointInPoly(pointer.x, pointer.y, poly) : false;
+
+        // highlight target lane near hit band
+        const laneInfo = laneXAtY(tile.lane, yHit, tp);
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        ctx.fillRect(laneInfo.x, yHit - 70, laneInfo.laneW, 140);
+
+        // tile body
+        ctx.beginPath();
+        ctx.moveTo(poly[0].x, poly[0].y);
+        for (let i=1;i<poly.length;i++) ctx.lineTo(poly[i].x, poly[i].y);
+        ctx.closePath();
+
+        ctx.fillStyle = (hovering ? "rgba(25,25,32,1)" : "rgba(15,15,20,1)");
+        ctx.fill();
+
+        ctx.strokeStyle = (hovering ? "rgba(76,175,80,0.65)" : "rgba(255,255,255,0.12)");
+        ctx.lineWidth = (hovering ? 2 : 1);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    // init
+    reset();
+
+    // Update instruction text based on mode
+    if (INPUT_MODE === "hover"){
+      centerHint.innerHTML = 'Press <b>Start</b>. Then: <span class="big">HOVER</span> the tile on the green band.';
+      setStatus("Desktop mode: hover-hit. No clicking.", "");
+    } else {
+      centerHint.innerHTML = 'Press <b>Start</b>. Then: <span class="big">TAP</span> the correct lane on the green band.';
+      setStatus("Mobile mode: tap-hit. (Hover doesn’t exist on touch.)", "");
+    }
+  })();
+  </script>
 </body>
 </html>
