@@ -1,228 +1,578 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>SRL Writing Phase Assistant</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hover Tiles — Bach Minuet</title>
+  <style>
+    :root { color-scheme: dark; }
+    body{
+      margin:0; min-height:100vh; display:grid; place-items:center;
+      background:#0b0b10; color:#eaeaf2;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      user-select:none;
+    }
+    .wrap{ width:min(560px, 94vw); }
+    .top{
+      display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+    .pill{
+      padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(255,255,255,0.14);
+      background:rgba(255,255,255,0.06);
+      font-size:12px; opacity:0.92;
+    }
+    .game{
+      position:relative;
+      height: 680px;
+      border-radius: 20px;
+      border:1px solid rgba(255,255,255,0.14);
+      overflow:hidden;
+      background: linear-gradient(180deg, rgba(80,190,220,0.35), rgba(20,20,28,0.0) 55%, rgba(20,20,28,0.35));
+      box-shadow:0 10px 35px rgba(0,0,0,0.35);
+      cursor: crosshair;
+    }
+    canvas{ width:100%; height:100%; display:block; }
 
-<style>
-:root{
-  --bg:#0f1220;
-  --panel:rgba(255,255,255,0.08);
-  --text:#eaeaf0;
-  --muted:#9aa0b4;
-  --accent:#7dd3fc;
-}
-body{
-  margin:0;
-  font-family:system-ui;
-  background:radial-gradient(circle at top,#1a1f3a,var(--bg));
-  color:var(--text);
-}
-.container{
-  max-width:1100px;
-  margin:30px auto;
-  padding:20px;
-  display:grid;
-  grid-template-columns:2fr 1fr;
-  gap:20px;
-}
-.panel{
-  background:var(--panel);
-  border-radius:16px;
-  padding:20px;
-}
-textarea{
-  width:100%;
-  min-height:360px;
-  background:rgba(0,0,0,0.4);
-  color:var(--text);
-  border:none;
-  border-radius:14px;
-  padding:18px;
-  font-size:16px;
-  line-height:1.6;
-}
-h2{margin-top:0;font-weight:500;}
-.metric{margin-bottom:14px;}
-.metric span{
-  display:block;
-  font-size:13px;
-  color:var(--muted);
-}
-.metric strong{
-  font-size:20px;
-}
-#coach{
-  margin-top:18px;
-  padding:14px;
-  border-radius:12px;
-  background:rgba(125,211,252,0.15);
-  color:var(--accent);
-}
-.footer{
-  grid-column:1/-1;
-  text-align:center;
-  color:var(--muted);
-  font-size:13px;
-  margin-top:20px;
-}
-</style>
+    .overlay{
+      position:absolute; left:0; right:0; top:0; bottom:0;
+      pointer-events:none;
+      display:flex; flex-direction:column; justify-content:space-between;
+      padding:10px;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.7);
+    }
+    .hudrow{
+      display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      align-items:center;
+    }
+    .chip{
+      font-size:13px; font-weight:700;
+      background: rgba(0,0,0,0.22);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius: 999px;
+      padding:6px 10px;
+    }
+    .centerHint{
+      margin: 0 auto;
+      width: min(460px, 92%);
+      text-align:center;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.22);
+      font-weight:800;
+      letter-spacing:0.4px;
+    }
+    .big{ font-size:22px; }
+    .controls{
+      margin-top:10px;
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    }
+    button{
+      border:1px solid rgba(255,255,255,0.14);
+      background:rgba(255,255,255,0.06);
+      color:#fff; border-radius:12px;
+      padding:10px 12px; cursor:pointer;
+    }
+    input[type="range"]{ width:240px; }
+    .status{
+      margin-top:10px; padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,0.14);
+      background:rgba(255,255,255,0.05);
+    }
+    .ok{ border-color: rgba(76,175,80,0.35); background: rgba(76,175,80,0.10); }
+    .bad{ border-color: rgba(244,67,54,0.35); background: rgba(244,67,54,0.10); }
+  </style>
 </head>
-
 <body>
-<div class="container">
+  <div class="wrap">
+    <div class="top">
+      <span class="pill">How: keep cursor near hit zone • when tile reaches green band → HOVER it to play the next note</span>
+      <span class="pill">Score: <span id="score">0</span></span>
+      <span class="pill">Best: <span id="best">0</span></span>
+      <span class="pill">Speed: <span id="spd">1.00×</span></span>
+      <span class="pill">Window: <span id="win">100</span>%</span>
+    </div>
 
-<div class="panel">
-  <h2>Writing Task</h2>
-  <p style="color:var(--muted)">
-    Write naturally. The system infers dominant SRL phases over time.
-  </p>
-  <textarea id="editor" placeholder="Start writing here..."></textarea>
-  <div id="coach"></div>
-</div>
+    <div class="game" id="game">
+      <canvas id="cv"></canvas>
+      <div class="overlay">
+        <div class="hudrow">
+          <div class="chip">Hover Tiles — “Minuet in G” (Bach-style)</div>
+          <div class="chip" id="hudRight">Ready</div>
+        </div>
 
-<div class="panel">
-  <h2>SRL Phase Support</h2>
+        <div class="centerHint" id="centerHint">
+          Click <b>Start</b> (audio permission). Then: <span class="big">HOVER the tile on the green hit band</span> to play the melody.
+        </div>
 
-  <div class="metric">
-    <span>Dominant Phase</span>
-    <strong id="phase">Planning</strong>
+        <div class="hudrow">
+          <div class="chip" id="noteHint">Next note: —</div>
+          <div class="chip" id="stepHint">Step: 0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn">Start (Audio + Game)</button>
+      <button id="resetBtn">Reset</button>
+      <span class="pill">Challenge</span>
+      <input id="challenge" type="range" min="0" max="10" value="7" />
+      <span class="pill"><span id="chLabel">7</span>/10</span>
+    </div>
+
+    <div id="status" class="status">No sound until you press Start (browser rule).</div>
   </div>
 
-  <div class="metric">
-    <span>Why?</span>
-    <strong id="reason">—</strong>
-  </div>
-
-  <div class="metric">
-    <span>What helps now</span>
-    <strong id="suggestion">—</strong>
-  </div>
-</div>
-
-<div class="footer">
-Pattern-based SRL phase inference · Single-file prototype
-</div>
-
-</div>
-
+  <!-- Tone.js for clean synth + timing -->
+  <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
 <script>
-const editor = document.getElementById("editor");
-const coach = document.getElementById("coach");
+(() => {
+  const LANES = 4;
 
-let startTime = null;
-let lastKeyTime = null;
-let lastWordCount = 0;
-let deletions = 0;
-let events = [];
+  // ===== Canvas =====
+  const gameEl = document.getElementById("game");
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
+  function resize(){
+    const r = cv.getBoundingClientRect();
+    cv.width  = Math.floor(r.width * devicePixelRatio);
+    cv.height = Math.floor(r.height * devicePixelRatio);
+  }
+  window.addEventListener("resize", resize);
+  resize();
 
-const WINDOW = 60000; // 60s
-const INACTIVITY = 120000;
-let idleTimer;
+  // ===== UI =====
+  const scoreEl = document.getElementById("score");
+  const bestEl  = document.getElementById("best");
+  const spdEl   = document.getElementById("spd");
+  const winEl   = document.getElementById("win");
+  const statusEl= document.getElementById("status");
+  const hudRight= document.getElementById("hudRight");
+  const centerHint = document.getElementById("centerHint");
+  const noteHint = document.getElementById("noteHint");
+  const stepHint = document.getElementById("stepHint");
 
-editor.addEventListener("keydown", e => {
-  const now = performance.now();
-  if (!startTime) startTime = now;
+  const challengeEl = document.getElementById("challenge");
+  const chLabel = document.getElementById("chLabel");
+  chLabel.textContent = challengeEl.value;
 
-  let type = "type";
-  if (e.key === "Backspace" || e.key === "Delete") {
-    type = "delete";
-    deletions++;
+  function setStatus(t, kind=""){
+    statusEl.className = "status " + kind;
+    statusEl.textContent = t;
   }
 
-  events.push({ time: now, type });
-  events = events.filter(ev => now - ev.time <= WINDOW);
+  // ===== Best score =====
+  const BEST_KEY = "hover_tiles_bach_best_v1";
+  let best = Number(localStorage.getItem(BEST_KEY) || 0);
+  bestEl.textContent = best;
 
-  lastKeyTime = now;
-  hideCoach();
-  resetIdle();
-  updatePhase();
-});
+  // ===== Audio =====
+  // Simple pleasant synth; swap oscillator type if you want.
+  const synth = new Tone.Synth({
+    oscillator: { type: "triangle" },
+    envelope: { attack: 0.01, decay: 0.08, sustain: 0.2, release: 0.15 }
+  }).toDestination();
 
-function resetIdle(){
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => {
-    coach.textContent =
-      "You paused for a while. This is normal. Decide your next step and continue.";
-    coach.style.display = "block";
-  }, INACTIVITY);
-}
-function hideCoach(){ coach.style.display = "none"; }
+  // ===== Track geometry (CSS px) =====
+  const TOP_WIDTH_FRAC = 0.42;
+  const BOT_WIDTH_FRAC = 0.96;
+  const TRACK_TOP_Y_FRAC = 0.12;
+  const TRACK_BOT_Y_FRAC = 0.98;
 
-// --- CORE PHASE ENGINE ---
-function inferPhase(){
-  const now = performance.now();
-  const elapsed = startTime ? now - startTime : 1;
-  const words = editor.value.trim().split(/\s+/).filter(Boolean).length;
-  const newWords = Math.max(words - lastWordCount, 0);
-  lastWordCount = words;
+  // Hit zone
+  const HIT_Y_FRAC = 0.86;
+  let hitWindow = 0.028;          // will shrink with difficulty
+  const TILE_LENGTH_FRAC = 0.11;
 
-  const deletes = events.filter(e => e.type === "delete").length;
-  const types = events.length || 1;
-  const deleteRatio = deletes / types;
+  // ===== Speed model (simple but challenging) =====
+  const BASE_UNITS_PER_SEC = 0.62;
+  let speed = 1.0;
 
-  const sessionProgress = words / 250; // soft expectation
-  const idleGap = lastKeyTime ? now - lastKeyTime : 0;
+  // ===== "Well-known Bach-style" melody data =====
+  // Minuet in G (opening melody line) - simplified single-note sequence.
+  // Notes: G A B C D E F# G ... (recognizable).
+  // We'll loop this to ~1 minute by repeating.
+  //
+  // Each entry: { note, lane }.
+  // lane mapping keeps a “melodic contour” across 4 lanes.
+  const MELODY = [
+    {n:"G4", l:1},{n:"A4", l:2},{n:"B4", l:3},{n:"C5", l:3},
+    {n:"D5", l:2},{n:"E5", l:2},{n:"F#5",l:3},{n:"G5", l:3},
+    {n:"D5", l:2},{n:"E5", l:2},{n:"C5", l:3},{n:"B4", l:3},
+    {n:"A4", l:2},{n:"G4", l:1},{n:"A4", l:2},{n:"B4", l:3},
+    {n:"C5", l:3},{n:"D5", l:2},{n:"B4", l:3},{n:"C5", l:3},
+    {n:"A4", l:2},{n:"B4", l:3},{n:"G4", l:1}
+  ];
 
-  // ---- PHASE SCORES ----
-  let scores = {
-    Planning: 0,
-    Performance: 0,
-    Monitoring: 0,
-    Reflection: 0
-  };
-
-  // Planning
-  if (words < 60) scores.Planning += 2;
-  if (deleteRatio > 0.3) scores.Planning += 1;
-  if (sessionProgress < 0.3) scores.Planning += 1;
-
-  // Performance
-  if (newWords > 8) scores.Performance += 2;
-  if (deleteRatio < 0.2) scores.Performance += 1;
-  if (sessionProgress > 0.2 && sessionProgress < 0.8) scores.Performance += 1;
-
-  // Monitoring
-  if (deleteRatio > 0.25 && words > 80) scores.Monitoring += 2;
-  if (newWords < 5 && deletes > 3) scores.Monitoring += 1;
-
-  // Reflection
-  if (words > 180) scores.Reflection += 1;
-  if (idleGap > 4000 && sessionProgress > 0.7) scores.Reflection += 2;
-  if (newWords === 0 && words > 150) scores.Reflection += 1;
-
-  // Pick dominant phase
-  let phase = Object.keys(scores)
-    .reduce((a, b) => scores[a] > scores[b] ? a : b);
-
-  const explanations = {
-    Planning: {
-      reason: "Early-stage writing and idea shaping",
-      suggestion: "Outline ideas or write rough notes."
-    },
-    Performance: {
-      reason: "Sustained idea execution",
-      suggestion: "Keep expressing ideas without over-editing."
-    },
-    Monitoring: {
-      reason: "Active reviewing and revising",
-      suggestion: "Check clarity and structure."
-    },
-    Reflection: {
-      reason: "Writing slowed after substantial progress",
-      suggestion: "Evaluate strengths and improvements."
+  // Build ~60s plan: repeat melody many times.
+  // Gap is "musical spacing" (smaller is faster). Speed-up will shorten effective timing.
+  function buildPlan(targetSeconds=62){
+    const plan = [];
+    let t = 0;
+    const baseGap = 0.34; // base spacing at speed=1
+    while (t < targetSeconds){
+      for (const step of MELODY){
+        plan.push({ note: step.n, lane: step.l, gap: baseGap });
+        // tiny rhythmic variation
+        t += baseGap;
+        if (t >= targetSeconds) break;
+      }
+      // breath between phrases
+      t += 0.25;
     }
-  };
+    return plan;
+  }
+  const plan = buildPlan(62);
 
-  return { phase, ...explanations[phase] };
-}
+  // ===== State =====
+  let running = false;
+  let gameOver = false;
+  let startedAudio = false;
 
-function updatePhase(){
-  const result = inferPhase();
-  document.getElementById("phase").textContent = result.phase;
-  document.getElementById("reason").textContent = result.reason;
-  document.getElementById("suggestion").textContent = result.suggestion;
-}
+  let score = 0;
+  let startTs = 0;
+  let lastTs = 0;
+
+  let stepIdx = 0;
+  let nextSpawnAt = 0;
+
+  // One active tile: { lane, s, note }
+  let tile = null;
+
+  // Pointer (CSS px)
+  let pointer = { x: -9999, y: -9999 };
+
+  // ===== Track helpers =====
+  function trackParams(){
+    const w = cv.getBoundingClientRect().width;
+    const h = cv.getBoundingClientRect().height;
+    const topY = h * TRACK_TOP_Y_FRAC;
+    const botY = h * TRACK_BOT_Y_FRAC;
+    const topW = w * TOP_WIDTH_FRAC;
+    const botW = w * BOT_WIDTH_FRAC;
+    const cx = w / 2;
+    return { w, h, cx, topY, botY, topW, botW };
+  }
+
+  function laneXAtY(laneIndex, y, tp){
+    const t = (y - tp.topY) / (tp.botY - tp.topY);
+    const width = tp.topW + (tp.botW - tp.topW) * t;
+    const left = tp.cx - width / 2;
+    const laneW = width / LANES;
+    return { left, laneW, x: left + laneIndex * laneW };
+  }
+
+  function yFromS(s, tp){
+    const eased = Math.pow(s, 1.35);
+    return tp.topY + (tp.botY - tp.topY) * eased;
+  }
+
+  function tilePoly(lane, sTop, sBot, tp){
+    const y1 = yFromS(sTop, tp);
+    const y2 = yFromS(sBot, tp);
+
+    const a1 = laneXAtY(lane, y1, tp);
+    const a2 = laneXAtY(lane, y2, tp);
+
+    const inset = 0.08;
+    const x1L = a1.x + a1.laneW * inset;
+    const x1R = a1.x + a1.laneW * (1 - inset);
+    const x2L = a2.x + a2.laneW * inset;
+    const x2R = a2.x + a2.laneW * (1 - inset);
+
+    return [
+      {x:x1L, y:y1},
+      {x:x1R, y:y1},
+      {x:x2R, y:y2},
+      {x:x2L, y:y2},
+    ];
+  }
+
+  function pointInPoly(px, py, poly){
+    let inside = false;
+    for (let i=0, j=poly.length-1; i<poly.length; j=i++){
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > py) !== (yj > py)) &&
+        (px < (xj - xi) * (py - yi) / (yj - yi + 1e-9) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function hitS(tp){
+    const yTarget = tp.h * HIT_Y_FRAC;
+    let lo = 0, hi = 1;
+    for (let i=0;i<18;i++){
+      const mid = (lo+hi)/2;
+      const y = yFromS(mid, tp);
+      if (y < yTarget) lo = mid; else hi = mid;
+    }
+    return (lo+hi)/2;
+  }
+
+  // ===== Difficulty controls =====
+  function computeDifficulty(){
+    const ch = Number(challengeEl.value); // 0..10
+    // Larger challenge = faster speed gains + smaller hit window
+    const windowScale = 1 - (ch/10)*0.35;     // up to 35% smaller
+    const minWin = 0.016;
+    hitWindow = Math.max(minWin, 0.028 * windowScale);
+    winEl.textContent = Math.round((hitWindow/0.028)*100);
+
+    // speed gain per hit
+    const speedGain = 0.02 + (ch/10)*0.05;     // 0.02 .. 0.07
+    return { speedGain };
+  }
+  challengeEl.addEventListener("input", ()=>{
+    chLabel.textContent = challengeEl.value;
+    computeDifficulty();
+  });
+
+  // ===== Lifecycle =====
+  function reset(){
+    running = false;
+    gameOver = false;
+    score = 0;
+    speed = 1.0;
+    stepIdx = 0;
+    nextSpawnAt = 0;
+    tile = null;
+
+    scoreEl.textContent = "0";
+    spdEl.textContent = "1.00×";
+    hudRight.textContent = "Ready";
+    noteHint.textContent = "Next note: —";
+    stepHint.textContent = "Step: 0";
+    centerHint.innerHTML = startedAudio
+      ? 'Ready. <span class="big">HOVER on the green band</span> to play notes.'
+      : 'Click <b>Start</b> to enable audio. Then hover-hit tiles to play the melody.';
+    setStatus("Press Start. (Audio needs a click.)", "");
+    computeDifficulty();
+    draw();
+  }
+
+  async function start(){
+    if (running) return;
+
+    // start audio (required by browsers)
+    if (!startedAudio){
+      await Tone.start();
+      startedAudio = true;
+    }
+
+    reset();
+    running = true;
+    startTs = performance.now();
+    lastTs = startTs;
+    hudRight.textContent = "GO";
+    setStatus("GO! Hover-hit the tile on the green band. Each hit plays the next note.", "ok");
+    requestAnimationFrame(loop);
+  }
+
+  function end(msg, good=false){
+    running = false;
+    gameOver = true;
+    hudRight.textContent = "STOP";
+    centerHint.textContent = good ? "FINISHED ✅" : "MISS ❌";
+    setStatus(msg + " Press Reset or Start.", good ? "ok" : "bad");
+
+    if (score > best){
+      best = score;
+      localStorage.setItem(BEST_KEY, String(best));
+      bestEl.textContent = best;
+      setStatus(msg + " NEW BEST ✅", "ok");
+    }
+  }
+
+  document.getElementById("startBtn").addEventListener("click", start);
+  document.getElementById("resetBtn").addEventListener("click", reset);
+
+  function spawnNext(){
+    if (stepIdx >= plan.length) return;
+    const st = plan[stepIdx];
+    tile = { lane: st.lane, s: -0.15, note: st.note };
+    noteHint.textContent = `Next note: ${st.note}`;
+    stepHint.textContent = `Step: ${stepIdx + 1}/${plan.length}`;
+    centerHint.innerHTML = '<span class="big">HOVER NOW!</span> on the green band';
+  }
+
+  function playNote(note){
+    // Note duration scales with speed (faster speed = shorter notes)
+    const dur = Math.max(0.08, 0.18 / speed);
+    synth.triggerAttackRelease(note, dur);
+  }
+
+  function scheduleNext(songTimeSec){
+    stepIdx++;
+    if (stepIdx >= plan.length){
+      tile = null;
+      end("Finished the piece!", true);
+      return;
+    }
+    // next gap shrinks with speed (challenge)
+    const gap = plan[stepIdx].gap / speed;
+    nextSpawnAt = songTimeSec + gap;
+    tile = null;
+    centerHint.innerHTML = 'Get ready… <span class="big">NEXT</span>';
+  }
+
+  function update(dt, songTimeSec){
+    // spawn if needed
+    if (!tile && stepIdx < plan.length && songTimeSec >= nextSpawnAt){
+      spawnNext();
+    }
+    if (!tile) return;
+
+    // move tile
+    tile.s += (BASE_UNITS_PER_SEC * speed) * dt;
+
+    const tp = trackParams();
+    const sHit = hitS(tp);
+    const win = hitWindow;
+
+    const sTop = tile.s;
+    const sBot = tile.s + TILE_LENGTH_FRAC;
+
+    const poly = tilePoly(tile.lane, sTop, sBot, tp);
+    const hovering = pointInPoly(pointer.x, pointer.y, poly);
+
+    // hit condition
+    const dist = Math.abs(sBot - sHit);
+    if (dist <= win && hovering){
+      // play the note
+      playNote(tile.note);
+
+      // score + difficulty
+      score += 100;
+      scoreEl.textContent = String(score);
+
+      const { speedGain } = computeDifficulty();
+      speed += speedGain;
+      spdEl.textContent = speed.toFixed(2) + "×";
+
+      hudRight.textContent = "NICE";
+      setTimeout(() => { if (running) hudRight.textContent = "GO"; }, 120);
+
+      scheduleNext(songTimeSec);
+      return;
+    }
+
+    // miss
+    if (sBot > sHit + win){
+      end("Miss! You didn’t hover-hit the tile at the hit band.", false);
+      return;
+    }
+  }
+
+  function loop(ts){
+    if (!running){ draw(); return; }
+
+    const dt = Math.min(0.033, (ts - lastTs) / 1000);
+    lastTs = ts;
+
+    const songTimeSec = (ts - startTs) / 1000;
+
+    update(dt, songTimeSec);
+    draw();
+
+    requestAnimationFrame(loop);
+  }
+
+  // ===== Pointer tracking =====
+  gameEl.addEventListener("pointermove", (e)=>{
+    const r = gameEl.getBoundingClientRect();
+    pointer.x = e.clientX - r.left;
+    pointer.y = e.clientY - r.top;
+  });
+  gameEl.addEventListener("pointerleave", ()=>{
+    pointer.x = -9999; pointer.y = -9999;
+  });
+
+  // ===== Draw =====
+  function draw(){
+    const tp = trackParams();
+    ctx.clearRect(0,0,cv.width,cv.height);
+
+    ctx.save();
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    // runway trapezoid
+    const topLeft  = { x: tp.cx - tp.topW/2, y: tp.topY };
+    const topRight = { x: tp.cx + tp.topW/2, y: tp.topY };
+    const botLeft  = { x: tp.cx - tp.botW/2, y: tp.botY };
+    const botRight = { x: tp.cx + tp.botW/2, y: tp.botY };
+
+    ctx.beginPath();
+    ctx.moveTo(topLeft.x, topLeft.y);
+    ctx.lineTo(topRight.x, topRight.y);
+    ctx.lineTo(botRight.x, botRight.y);
+    ctx.lineTo(botLeft.x, botLeft.y);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // lanes
+    ctx.strokeStyle = "rgba(0,0,0,0.12)";
+    ctx.lineWidth = 2;
+    for (let i=1;i<LANES;i++){
+      const tX = (tp.cx - tp.topW/2) + (tp.topW/LANES)*i;
+      const bX = (tp.cx - tp.botW/2) + (tp.botW/LANES)*i;
+      ctx.beginPath();
+      ctx.moveTo(tX, tp.topY);
+      ctx.lineTo(bX, tp.botY);
+      ctx.stroke();
+    }
+
+    // HIT BAND (very clear)
+    const yHit = tp.h * HIT_Y_FRAC;
+    const a = laneXAtY(0, yHit, tp);
+    const left = a.left;
+    const width = a.laneW * LANES;
+
+    ctx.fillStyle = "rgba(76,175,80,0.12)";
+    ctx.fillRect(left, yHit - 24, width, 48);
+
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.fillRect(left, yHit - 2, width, 4);
+
+    // draw tile
+    if (tile){
+      const sTop = tile.s;
+      const sBot = tile.s + TILE_LENGTH_FRAC;
+      const poly = tilePoly(tile.lane, sTop, sBot, tp);
+      const hovering = pointInPoly(pointer.x, pointer.y, poly);
+
+      // highlight target lane near hit band
+      const laneInfo = laneXAtY(tile.lane, yHit, tp);
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(laneInfo.x, yHit - 70, laneInfo.laneW, 140);
+
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let i=1;i<poly.length;i++) ctx.lineTo(poly[i].x, poly[i].y);
+      ctx.closePath();
+
+      ctx.fillStyle = hovering ? "rgba(25,25,32,1)" : "rgba(15,15,20,1)";
+      ctx.fill();
+
+      ctx.strokeStyle = hovering ? "rgba(76,175,80,0.60)" : "rgba(255,255,255,0.12)";
+      ctx.lineWidth = hovering ? 2 : 1;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  reset();
+})();
 </script>
 </body>
 </html>
