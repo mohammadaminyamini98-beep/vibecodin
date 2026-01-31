@@ -332,7 +332,7 @@
       currentWindow();
 
       centerHint.innerHTML =
-        `Press <b>Start</b>. Then: <span class="big">${INPUT_MODE === "hover" ? "HOVER" : "TAP"}</span> anywhere inside the highlighted lane zone (≈75% height).`;
+        `Press <b>Start</b>. Then: <span class="big">${INPUT_MODE === "hover" ? "HOVER" : "Wait"}</span> Wait, until blocks reach the green line.`;
 
       setStatus("Super easy mode: huge timing + huge acceptance area.", "");
       draw();
@@ -349,7 +349,7 @@
       startTs = performance.now();
       lastTs = startTs;
       hudRight.textContent = "GO";
-      setStatus("Wait, unitil blocks reach the green line", "ok");
+      setStatus("Wait, until blocks reach the green line", "ok");
       requestAnimationFrame(loop);
     }
 
@@ -590,4 +590,5 @@
   </script>
 </body>
 </html>
+
 
