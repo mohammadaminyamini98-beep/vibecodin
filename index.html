@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-  <title>Tiles — Hover (Desktop) / Tap (Mobile) + Music (Easier)</title>
+  <title>Tiles — Hover (Desktop) / Tap (Mobile) + Music (Very Easy)</title>
   <style>
     :root { color-scheme: dark; }
     body{
@@ -32,7 +32,7 @@
       background: linear-gradient(180deg, rgba(80,190,220,0.35), rgba(20,20,28,0.0) 55%, rgba(20,20,28,0.35));
       box-shadow:0 10px 35px rgba(0,0,0,0.35);
       cursor: crosshair;
-      touch-action: manipulation; /* mobile friendly */
+      touch-action: manipulation;
     }
     canvas{ width:100%; height:100%; display:block; }
     .overlay{
@@ -55,7 +55,7 @@
     }
     .centerHint{
       margin: 0 auto;
-      width: min(480px, 92%);
+      width: min(500px, 92%);
       text-align:center;
       padding:10px 12px;
       border-radius:14px;
@@ -100,7 +100,7 @@
 
       <div class="overlay">
         <div class="hudrow">
-          <div class="chip">Tiles + Music (Easy)</div>
+          <div class="chip">Tiles + Music (Very Easy)</div>
           <div class="chip" id="hudRight">Ready</div>
         </div>
 
@@ -121,7 +121,7 @@
     </div>
 
     <div id="status" class="status">
-      Easier mode: bigger hit window + you can hover/tap anywhere in the correct lane near the hit band.
+      Very easy: the highlighted lane acceptance zone covers ~50% of the screen height.
     </div>
   </div>
 
@@ -161,7 +161,7 @@
     }
 
     // BEST
-    const BEST_KEY = "tiles_easy_best_v1";
+    const BEST_KEY = "tiles_very_easy_best_v1";
     let best = Number(localStorage.getItem(BEST_KEY) || 0);
     bestEl.textContent = best;
 
@@ -170,9 +170,8 @@
       oscillator: { type: "triangle" },
       envelope: { attack: 0.01, decay: 0.08, sustain: 0.2, release: 0.15 }
     }).toDestination();
-
     function playNote(note, speed){
-      const dur = Math.max(0.10, 0.22 / speed);
+      const dur = Math.max(0.12, 0.24 / speed);
       synth.triggerAttackRelease(note, dur);
     }
 
@@ -183,35 +182,34 @@
     const TRACK_TOP_Y_FRAC = 0.12;
     const TRACK_BOT_Y_FRAC = 0.98;
 
-    // hit zone settings
     const HIT_Y_FRAC = 0.86;
     const TILE_LENGTH_FRAC = 0.11;
 
-    // acceptance: enlarge hover/tap zone around hit band
-    const LANE_ACCEPT_HALF_HEIGHT = 95; // px around hit band where lane counts as acceptable
+    // ACCEPTANCE ZONE: ~50% of the screen height around the hit line
+    // We compute this dynamically each frame:
+    function laneAcceptHalfHeight(tp){
+      return tp.h * 0.25; // half-height = 25% => total height = 50%
+    }
 
-    // SPEED / DIFFICULTY (still increases, but not brutal)
-    const BASE_UNITS_PER_SEC = 0.60;
+    // SPEED (still increases)
+    const BASE_UNITS_PER_SEC = 0.58;
     let speed = 1.0;
 
-    // BIGGER windows => easier
-    const WIN_BASE = 0.045; // increased from ~0.028
-    const WIN_MIN  = 0.030; // never gets too small
-
+    // HUGE timing window, and we DO NOT shrink it anymore
+    const WIN_BASE = 0.090;  // very forgiving
+    const WIN_MIN  = 0.090;  // constant window
     function currentWindow(){
-      // shrink gently as speed increases
-      const shrink = Math.min(0.25, (speed - 1) * 0.03); // up to -25% only
-      const w = Math.max(WIN_MIN, WIN_BASE * (1 - shrink));
-      winEl.textContent = String(Math.round((w / WIN_BASE) * 100));
+      const w = WIN_MIN;
+      winEl.textContent = "200"; // relative display (approx), just a friendly indicator
       return w;
     }
 
     function speedGain(){
-      // still ramps, but slightly slower than before
-      return 0.03 + Math.min(0.03, (speed - 1) * 0.005); // ~0.03..0.06
+      // still ramps, but not insane
+      return 0.025; // constant gain per hit
     }
 
-    // MUSIC PLAN (Minuet in G melody line, simplified & looped)
+    // MUSIC (Minuet-like melody loop)
     const MELODY = [
       "G4","A4","B4","C5","D5","E5","F#5","G5",
       "D5","E5","C5","B4","A4","G4","A4","B4",
@@ -232,14 +230,14 @@
     function buildPlan(targetSeconds=62){
       const plan = [];
       let t = 0;
-      const baseGap = 0.36; // slightly slower base
+      const baseGap = 0.38; // slower + easier
       while (t < targetSeconds){
         for (const n of MELODY){
           plan.push({ note:n, lane: laneMap(n), gap: baseGap });
           t += baseGap;
           if (t >= targetSeconds) break;
         }
-        t += 0.25;
+        t += 0.30;
       }
       return plan;
     }
@@ -301,6 +299,7 @@
       return (lo+hi)/2;
     }
     function laneFromXAtHit(xCss, tp){
+      // For mobile tap: lane based only on x, so user can tap anywhere vertically.
       const y = tp.h * HIT_Y_FRAC;
       const a = laneXAtY(0, y, tp);
       const left = a.left, laneW = a.laneW;
@@ -318,7 +317,7 @@
     let stepIdx = 0;
     let nextSpawnAt = 0;
     let tile = null; // { lane, s, note }
-    let pointer = { x:-9999, y:-9999 }; // css px
+    let pointer = { x:-9999, y:-9999 };
 
     function reset(){
       running = false;
@@ -335,8 +334,10 @@
       stepHint.textContent = "Step: 0";
       currentWindow();
 
-      centerHint.innerHTML = `Press <b>Start</b>. Then: <span class="big">${INPUT_MODE === "hover" ? "HOVER" : "TAP"}</span> on the green band.`;
-      setStatus("Easier mode: bigger timing + bigger lane acceptance.", "");
+      centerHint.innerHTML =
+        `Press <b>Start</b>. Then: <span class="big">${INPUT_MODE === "hover" ? "HOVER" : "TAP"}</span> anywhere inside the highlighted lane zone (≈50% height).`;
+
+      setStatus("Very easy mode: huge timing + huge acceptance area.", "");
       draw();
     }
 
@@ -351,7 +352,7 @@
       startTs = performance.now();
       lastTs = startTs;
       hudRight.textContent = "GO";
-      setStatus("GO! Bigger window: you can hover/tap the lane near the green band.", "ok");
+      setStatus("GO! This is very forgiving. It will still speed up gradually.", "ok");
       requestAnimationFrame(loop);
     }
 
@@ -377,8 +378,8 @@
       noteHint.textContent = `Next note: ${st.note}`;
       stepHint.textContent = `Step: ${stepIdx + 1}/${plan.length}`;
       centerHint.innerHTML = (INPUT_MODE === "hover")
-        ? '<span class="big">HOVER NOW!</span> (green band)'
-        : '<span class="big">TAP NOW!</span> (green band)';
+        ? '<span class="big">HOVER NOW!</span> (anywhere in highlighted lane)'
+        : '<span class="big">TAP NOW!</span> (anywhere in highlighted lane)';
     }
 
     function scheduleNext(songTimeSec){
@@ -416,7 +417,7 @@
       scheduleNext(songTimeSec);
     }
 
-    // POINTER TRACKING
+    // POINTER
     gameEl.addEventListener("pointermove", (e) => {
       const r = gameEl.getBoundingClientRect();
       pointer.x = e.clientX - r.left;
@@ -426,7 +427,7 @@
       pointer.x = -9999; pointer.y = -9999;
     });
 
-    // TAP MODE: bigger acceptance (anywhere in correct lane near hit band)
+    // TAP MODE: tap anywhere vertically; lane determined only by x
     gameEl.addEventListener("pointerdown", (e) => {
       if (!running || INPUT_MODE !== "tap") return;
       if (!tile) return;
@@ -458,7 +459,7 @@
       }
       if (!tile) return;
 
-      tile.s += (BASE_UNITS_PER_SEC * speed) * dt;
+      tile.s += (0.58 * speed) * dt;
 
       const tp = trackParams();
       const sHit = hitS(tp);
@@ -467,23 +468,24 @@
       const sTop = tile.s;
       const sBot = tile.s + TILE_LENGTH_FRAC;
 
-      // DESKTOP HOVER: easier acceptance = tile OR lane-region near hit band
       if (INPUT_MODE === "hover"){
-        const poly = tilePoly(tile.lane, sTop, sBot, tp);
-        const hoveringTile = pointInPoly(pointer.x, pointer.y, poly);
-
-        // lane acceptance region around hit band (big rectangle)
+        // Giant lane acceptance zone (≈50% of height)
         const yHit = tp.h * HIT_Y_FRAC;
+        const half = laneAcceptHalfHeight(tp);
         const laneInfo = laneXAtY(tile.lane, yHit, tp);
-        const inLaneRegion =
+
+        const inLaneZone =
           pointer.x >= laneInfo.x &&
           pointer.x <= laneInfo.x + laneInfo.laneW &&
-          pointer.y >= (yHit - LANE_ACCEPT_HALF_HEIGHT) &&
-          pointer.y <= (yHit + LANE_ACCEPT_HALF_HEIGHT);
+          pointer.y >= (yHit - half) &&
+          pointer.y <= (yHit + half);
+
+        // also accept direct tile hover
+        const poly = tilePoly(tile.lane, sTop, sBot, tp);
+        const onTile = pointInPoly(pointer.x, pointer.y, poly);
 
         const dist = Math.abs(sBot - sHit);
-
-        if (dist <= win && (hoveringTile || inLaneRegion)){
+        if (dist <= win && (inLaneZone || onTile)){
           registerHit(songTimeSec);
           return;
         }
@@ -499,11 +501,10 @@
       if (!running){ draw(); return; }
       const dt = Math.min(0.033, (ts - lastTs) / 1000);
       lastTs = ts;
-
       const songTimeSec = (ts - startTs) / 1000;
+
       update(dt, songTimeSec);
       draw();
-
       requestAnimationFrame(loop);
     }
 
@@ -515,7 +516,7 @@
       ctx.save();
       ctx.scale(devicePixelRatio, devicePixelRatio);
 
-      // runway trapezoid
+      // runway
       const topLeft  = { x: tp.cx - tp.topW/2, y: tp.topY };
       const topRight = { x: tp.cx + tp.topW/2, y: tp.topY };
       const botLeft  = { x: tp.cx - tp.botW/2, y: tp.botY };
@@ -534,7 +535,7 @@
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // lanes
+      // lane lines
       ctx.strokeStyle = "rgba(0,0,0,0.12)";
       ctx.lineWidth = 2;
       for (let i=1;i<LANES;i++){
@@ -546,30 +547,32 @@
         ctx.stroke();
       }
 
-      // HIT BAND (bigger + clearer)
+      // hit band (still visible)
       const yHit = tp.h * HIT_Y_FRAC;
       const a = laneXAtY(0, yHit, tp);
       const left = a.left;
       const width = a.laneW * LANES;
 
       ctx.fillStyle = "rgba(76,175,80,0.16)";
-      ctx.fillRect(left, yHit - 32, width, 64);
+      ctx.fillRect(left, yHit - 30, width, 60);
 
       ctx.fillStyle = "rgba(255,255,255,0.12)";
       ctx.fillRect(left, yHit - 2, width, 4);
 
-      // tile
+      // tile + HUGE acceptance zone
       if (tile){
+        const half = laneAcceptHalfHeight(tp);
+        const laneInfo = laneXAtY(tile.lane, yHit, tp);
+
+        // acceptance area (50% height)
+        ctx.fillStyle = "rgba(255,255,255,0.07)";
+        ctx.fillRect(laneInfo.x, yHit - half, laneInfo.laneW, half*2);
+
+        // tile
         const sTop = tile.s;
         const sBot = tile.s + TILE_LENGTH_FRAC;
         const poly = tilePoly(tile.lane, sTop, sBot, tp);
 
-        // highlight target lane acceptance region
-        const laneInfo = laneXAtY(tile.lane, yHit, tp);
-        ctx.fillStyle = "rgba(255,255,255,0.06)";
-        ctx.fillRect(laneInfo.x, yHit - LANE_ACCEPT_HALF_HEIGHT, laneInfo.laneW, LANE_ACCEPT_HALF_HEIGHT*2);
-
-        // tile body
         ctx.beginPath();
         ctx.moveTo(poly[0].x, poly[0].y);
         for (let i=1;i<poly.length;i++) ctx.lineTo(poly[i].x, poly[i].y);
@@ -584,15 +587,10 @@
       ctx.restore();
     }
 
-    // init
+    // init + buttons
     reset();
-
-    // instruction per mode
-    if (INPUT_MODE === "hover"){
-      centerHint.innerHTML = 'Press <b>Start</b>. Then: <span class="big">HOVER</span> anywhere in the highlighted lane near the green band.';
-    } else {
-      centerHint.innerHTML = 'Press <b>Start</b>. Then: <span class="big">TAP</span> the correct lane near the green band.';
-    }
+    document.getElementById("startBtn").addEventListener("click", start);
+    document.getElementById("resetBtn").addEventListener("click", reset);
   })();
   </script>
 </body>
